@@ -1,5 +1,6 @@
 import { sourceSchema, usageSchema, answerReviewSchema } from '../../shared/contracts';
 import { z } from 'zod';
+import { normalizeGeminiKey } from '../../shared/credentials';
 let accessToken = '';
 const GEMINI_KEY_STORAGE = 'interview-pulse:gemini-key';
 export function getGeminiKey() {
@@ -19,9 +20,8 @@ export function remembersGeminiKey() {
   }
 }
 export function saveGeminiKey(value: string, remember = false) {
-  const key = value.trim();
-  if (key && !/^[A-Za-z0-9_-]{20,200}$/.test(key))
-    throw new Error('Invalid Gemini API key format. Paste the complete key.');
+  const key = normalizeGeminiKey(value);
+  if (!key) throw new Error('Enter your Gemini API key.');
   // Write the destination first so a storage failure cannot erase the existing key.
   const destination = remember ? localStorage : sessionStorage;
   if (key) destination.setItem(GEMINI_KEY_STORAGE, key);

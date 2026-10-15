@@ -345,7 +345,7 @@ test('Gemini modal saves a tab key, survives reload, and removes it', async ({ p
   await page.getByRole('button', { name: 'เพิ่ม Gemini API key', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'ตั้งค่า Gemini API key' });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel('Gemini API key', { exact: true }).fill(key);
+  await dialog.getByLabel('Gemini API key', { exact: true }).fill(`GEMINI_API_KEY="${key}"`);
   await expect(dialog.getByLabel('Gemini API key', { exact: true })).toHaveAttribute(
     'type',
     'password',

@@ -4,6 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { normalizeGeminiKey } from '../shared/credentials.js';
 import { z } from 'zod';
 import {
   GoogleGenAI,
@@ -161,10 +162,14 @@ export function createApp(
     next();
   });
   app.use('/api', (req, res, next) => {
-    const key = req.get('X-Gemini-API-Key')?.trim() || '';
-    if (key && !/^[A-Za-z0-9_-]{20,200}$/.test(key))
-      return res.status(400).json({ error: 'Invalid Gemini API key format.' });
-    requestProvider.run({ key }, next);
+    try {
+      const key = normalizeGeminiKey(req.get('X-Gemini-API-Key') || '');
+      requestProvider.run({ key }, next);
+    } catch {
+      return res
+        .status(400)
+        .json({ error: 'Paste only the Gemini API key value, without spaces or line breaks.' });
+    }
   });
   app.get('/api/health', (_req, res) =>
     res.json({

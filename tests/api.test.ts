@@ -398,7 +398,7 @@ test('browser credentials are request-scoped across concurrent requests and neve
         503,
       );
       assert.equal(
-        (await fetch(base + '/api/health', { headers: { 'X-Gemini-API-Key': 'bad' } })).status,
+        (await fetch(base + '/api/health', { headers: { 'X-Gemini-API-Key': 'bad key' } })).status,
         400,
       );
     },
