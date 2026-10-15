@@ -1,0 +1,11 @@
+{
+  "name": "Vanguard AI - Executive Interview Intelligence",
+  "description": "ระบบ AI อัจฉริยะระดับผู้บริหารสำหรับการเตรียมตัวและรับมือการสัมภาษณ์งานแบบ Realtime พร้อมวิเคราะห์เชิงลึก คำตอบ STAR และเทคนิคชั้นสูง",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
