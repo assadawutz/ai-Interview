@@ -23,8 +23,8 @@ The fixture server is guarded by `INTERVIEW_TEST_MODE=1`, is not imported by `se
 ## Verified local run for v2.0
 
 - Formatting, strict TypeScript checks and production build passed.
-- **43 regression/API/quality/adapter tests passed.**
-- **25 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
+- **45 regression/API/quality/adapter tests passed.**
+- **26 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
 - `npm audit` reported **0 known vulnerabilities** in the installed dependency tree at this check.
 - The live evaluator stopped before generation because the server key is not configured. No live Gemini quality score is claimed.
 
@@ -68,3 +68,12 @@ filtering, recognition restart and stop. Speech events/audio are synthetic.
 There is no Ollama daemon or installed model in this workspace, so model quality,
 CPU/GPU latency and real microphone recognition remain unverified. Cloud checks
 confirm localhost cannot be selected as a reachable Vercel Ollama service.
+
+## Vercel cloud inference route
+
+Ollama Cloud adapter tests verify HTTPS endpoint selection, provider-specific
+Bearer authentication, safe model catalog IDs and JSON/stream response mapping.
+A browser case loads a cloud catalog, selects a model, saves settings and sends
+that provider's credential with coaching requests. Catalog metadata is explicitly
+marked as not verifying credentials or quota. Actual paid/authenticated cloud
+generation remains unverified without a user-provided Ollama credential.

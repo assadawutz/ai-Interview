@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { externalProvider, ollamaDeploymentSupported } from '../server/llm';
+import { externalProvider, ollamaDeploymentSupported, listExternalModels } from '../server/llm';
 import { routingSchema } from '../shared/routing';
 const route = routingSchema.parse({
   provider: 'ollama',
@@ -14,6 +14,7 @@ test('Ollama adapter sends structured text to its fixed local endpoint without a
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, 'fixture:local');
     assert.match(JSON.stringify(body.messages), /Return only JSON/);
+    assert.match(JSON.stringify(body.messages), /properties/);
     return Response.json({
       id: 'fixture',
       object: 'chat.completion',
@@ -32,7 +33,14 @@ test('Ollama adapter sends structured text to its fixed local endpoint without a
   const result = await externalProvider(route, 'never-forward-this', mockFetch).generate({
     model: 'external:ollama:fixture:local',
     contents: 'Reply JSON',
-    config: { responseMimeType: 'application/json' },
+    config: {
+      responseMimeType: 'application/json',
+      responseJsonSchema: {
+        type: 'object',
+        properties: { reply: { type: 'string' } },
+        required: ['reply'],
+      },
+    },
   });
   assert.deepEqual(JSON.parse(result.text!), { reply: 'local answer' });
   assert.equal(result.modelVersion, 'ollama/fixture:local');
@@ -103,4 +111,58 @@ test('cloud deployments do not mistake a localhost Ollama URL for a reachable us
   assert.equal(ollamaDeploymentSupported('1', 'file:///etc/passwd'), false);
   assert.equal(ollamaDeploymentSupported('1', 'https://trusted-ollama.example'), true);
   assert.equal(ollamaDeploymentSupported(undefined, undefined), true);
+});
+
+test('Ollama Cloud uses the HTTPS cloud endpoint and its own provider credential', async () => {
+  const cloud = routingSchema.parse({
+    provider: 'ollama-cloud',
+    model: 'fixture-cloud',
+    primary: 'external',
+  });
+  const transport: typeof fetch = async (url, init) => {
+    assert.equal(String(url), 'https://ollama.com/v1/chat/completions');
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test-ollama-cloud-key');
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'fixture-cloud');
+    return Response.json({
+      id: 'fixture',
+      object: 'chat.completion',
+      created: 1,
+      model: 'fixture-cloud',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Cloud answer' },
+          finish_reason: 'stop',
+        },
+      ],
+    });
+  };
+  const answer = await externalProvider(cloud, 'test-ollama-cloud-key', transport).generate({
+    model: 'external:ollama-cloud:fixture-cloud',
+    contents: 'Explain indexes',
+  });
+  assert.equal(answer.text, 'Cloud answer');
+  assert.equal(answer.modelVersion, 'ollama-cloud/fixture-cloud');
+});
+
+test('model catalog uses only the selected fixed provider endpoint and returns safe IDs', async () => {
+  const cloud = routingSchema.parse({ provider: 'ollama-cloud' });
+  const transport: typeof fetch = async (url, init) => {
+    assert.equal(String(url), 'https://ollama.com/v1/models');
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer catalog-key');
+    return Response.json({
+      data: [
+        { id: 'fixture:cloud' },
+        { id: 'fixture:cloud' },
+        null,
+        { id: 'bad\nname' },
+        { id: 'alpha:cloud' },
+      ],
+    });
+  };
+  assert.deepEqual(
+    await listExternalModels(cloud, 'catalog-key', new AbortController().signal, transport),
+    ['alpha:cloud', 'fixture:cloud'],
+  );
 });

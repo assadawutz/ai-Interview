@@ -13,7 +13,12 @@ import {
   externalModel,
   type LLMRouting,
 } from '../shared/routing.js';
-import { externalProvider, textOnly, ollamaDeploymentSupported } from './llm.js';
+import {
+  externalProvider,
+  textOnly,
+  ollamaDeploymentSupported,
+  listExternalModels,
+} from './llm.js';
 import { z } from 'zod';
 import {
   GoogleGenAI,
@@ -122,7 +127,7 @@ function publicError(error: unknown): ApiError {
   if (status === 401 || status === 403)
     return new ApiError(
       502,
-      'AI credentials or model access are unavailable. Check server configuration.',
+      'AI credentials or model access are unavailable. Check the selected provider key and model in Settings.',
     );
   if (status === 404)
     return new ApiError(
@@ -646,6 +651,16 @@ export function createApp(
       plan: checkPreparation(structured(preparationSchema, response.text), data.context),
       modelUsed: response.modelVersion || 'provider model (version not reported)',
     });
+  });
+  post('/api/llm-models', z.object({}), async (_data, res, signal) => {
+    const state = requestProvider.getStore()!;
+    if (state.route.provider === 'ollama' && !ollamaDeploymentSupported())
+      throw new ApiError(
+        409,
+        'Use Ollama Cloud on Vercel; local Ollama requires a reachable server.',
+      );
+    const models = await listExternalModels(state.route, state.externalKey, signal);
+    res.json({ provider: state.route.provider, models, credentialVerified: false });
   });
   post('/api/diagnostics', z.object({}), async (_data, res, signal) => {
     const client = getProvider();

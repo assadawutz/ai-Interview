@@ -5,9 +5,39 @@ import type { Provider } from './app.js';
 import type { LLMRouting } from '../shared/routing.js';
 const endpoints = {
   openrouter: 'https://openrouter.ai/api/v1',
+  'ollama-cloud': 'https://ollama.com/v1',
   groq: 'https://api.groq.com/openai/v1',
   ollama: `${(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')}/v1`,
 };
+export async function listExternalModels(
+  route: LLMRouting,
+  key: string,
+  signal: AbortSignal,
+  transport: typeof fetch = fetch,
+) {
+  const response = await transport(`${endpoints[route.provider]}/models`, {
+    headers: route.provider === 'ollama' || !key ? {} : { Authorization: `Bearer ${key}` },
+    signal,
+  });
+  if (!response.ok)
+    throw Object.assign(new Error('Provider model catalog unavailable.'), {
+      status: response.status,
+    });
+  const data = (await response.json()) as { data?: { id?: unknown }[] };
+  if (!Array.isArray(data.data))
+    throw Object.assign(new Error('Invalid provider model catalog.'), { status: 502 });
+  return [
+    ...new Set(
+      data.data.flatMap((item) =>
+        item && typeof item.id === 'string' && /^[A-Za-z0-9_./:@-]{1,200}$/.test(item.id)
+          ? [item.id]
+          : [],
+      ),
+    ),
+  ]
+    .sort()
+    .slice(0, 1000);
+}
 export function ollamaDeploymentSupported(
   vercel = process.env.VERCEL,
   base = process.env.OLLAMA_BASE_URL,
@@ -89,7 +119,7 @@ export function externalProvider(
       system:
         system +
         (params.config?.responseMimeType === 'application/json'
-          ? `\nReturn only JSON matching this schema: ${JSON.stringify(params.config.responseSchema || {})}`
+          ? `\nReturn only JSON matching this schema: ${JSON.stringify(params.config.responseJsonSchema || params.config.responseSchema || {})}`
           : ''),
       prompt:
         typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents),

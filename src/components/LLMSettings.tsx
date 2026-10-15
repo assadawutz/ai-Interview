@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Network } from 'lucide-react';
 import { Modal } from './Modal';
-import { getLLMConnection, saveLLMConnection, clearLLMConnection } from '../lib/api';
+import { getLLMConnection, saveLLMConnection, clearLLMConnection, request } from '../lib/api';
 import type { LLMRouting } from '../../shared/routing';
+import { normalizeGeminiKey } from '../../shared/credentials';
 export function LLMSettings({
   language,
   localSupported,
@@ -19,6 +20,10 @@ export function LLMSettings({
   const [route, setRoute] = useState(() => getLLMConnection().route);
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const lookup = useRef<AbortController | null>(null);
+  useEffect(() => () => lookup.current?.abort(), []);
   return (
     <div className="setup-guide">
       <Network size={20} />
@@ -34,7 +39,12 @@ export function LLMSettings({
           className="button"
           onClick={() => {
             const saved = getLLMConnection();
-            setRoute(saved.route);
+            setRoute(
+              localSupported === false && !saved.route.model
+                ? { ...saved.route, provider: 'ollama-cloud', primary: 'external', fallback: true }
+                : saved.route,
+            );
+            setModels([]);
             setKey(saved.key);
             setError('');
             setOpen(true);
@@ -46,6 +56,7 @@ export function LLMSettings({
           <Modal
             title={t('LLM และการสลับสำรอง', 'LLM routing and fallback')}
             onClose={() => {
+              lookup.current?.abort();
               setOpen(false);
               setKey('');
             }}
@@ -56,6 +67,7 @@ export function LLMSettings({
                 e.preventDefault();
                 try {
                   saveLLMConnection(route, key);
+                  lookup.current?.abort();
                   setOpen(false);
                   setKey('');
                   onRefresh();
@@ -75,14 +87,19 @@ export function LLMSettings({
                 <select
                   value={route.provider}
                   onChange={(e) => {
+                    lookup.current?.abort();
+                    setModels([]);
+                    setError('');
                     setRoute({
                       ...route,
                       provider: e.target.value as LLMRouting['provider'],
                       model: '',
+                      primary: e.target.value === 'ollama-cloud' ? 'external' : route.primary,
                     });
                     setKey('');
                   }}
                 >
+                  <option value="ollama-cloud">Ollama Cloud (Vercel)</option>
                   <option value="ollama">Ollama (Local LLM)</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="groq">Groq</option>
@@ -113,6 +130,85 @@ export function LLMSettings({
                   />
                 </label>
               )}
+              {route.provider === 'ollama-cloud' && (
+                <p className="micro muted">
+                  {t(
+                    'ใช้ Ollama ผ่าน API บน Vercel ได้ ไม่ต้องเปิดเครื่องหรือเซิร์ฟเวอร์ local แต่ต้องมี key และสิทธิ์ของบัญชี Ollama Cloud',
+                    'Uses Ollama’s cloud API from Vercel without a local server. An Ollama Cloud key and account access are required.',
+                  )}{' '}
+                  <a
+                    href="https://ollama.com/settings/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {t('สร้าง Ollama key', 'Get an Ollama key')}
+                  </a>
+                </p>
+              )}
+              <button
+                className="button"
+                type="button"
+                disabled={loading || (route.provider === 'ollama' && localSupported === false)}
+                onClick={async () => {
+                  lookup.current?.abort();
+                  const controller = new AbortController();
+                  lookup.current = controller;
+                  setLoading(true);
+                  setError('');
+                  try {
+                    const result = await request<{ models: string[] }>(
+                      'llm-models',
+                      {},
+                      controller.signal,
+                      {
+                        'X-LLM-Config': JSON.stringify(route),
+                        'X-LLM-API-Key': route.provider === 'ollama' ? '' : normalizeGeminiKey(key),
+                      },
+                    );
+                    if (lookup.current === controller && !controller.signal.aborted) {
+                      setModels(result.models);
+                      if (!result.models.length)
+                        setError(
+                          t(
+                            'ยังไม่มีโมเดลจากผู้ให้บริการนี้',
+                            'No models returned by this provider.',
+                          ),
+                        );
+                    }
+                  } catch (e) {
+                    if (!controller.signal.aborted)
+                      setError(e instanceof Error ? e.message : 'Model lookup failed.');
+                  } finally {
+                    if (lookup.current === controller) setLoading(false);
+                  }
+                }}
+              >
+                {loading
+                  ? t('กำลังโหลดโมเดล…', 'Loading models…')
+                  : t('โหลดรายชื่อโมเดล', 'Load model list')}
+              </button>
+              {models.length > 0 && (
+                <label>
+                  {t('เลือกโมเดลที่มีให้บริการ', 'Choose an available model')}
+                  <select
+                    value={models.includes(route.model) ? route.model : ''}
+                    onChange={(e) => setRoute({ ...route, model: e.target.value })}
+                  >
+                    <option value="">{t('เลือกโมเดล', 'Select a model')}</option>
+                    {models.map((model) => (
+                      <option value={model} key={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <p className="micro muted">
+                {t(
+                  'รายชื่อโมเดลไม่ยืนยันว่า key ใช้งานได้หรือมีโควตา การสร้างคำตอบอาจมีค่าใช้จ่ายตามบัญชี',
+                  'The model list does not verify your key or quota. Generation may incur account charges.',
+                )}
+              </p>
               <label>
                 {t('โมเดลหลัก', 'Primary route')}
                 <select

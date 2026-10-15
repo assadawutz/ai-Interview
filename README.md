@@ -230,3 +230,26 @@ audio, explicit microphone devices and the recorder fallback still use Gemini
 transcription and can stop working when its quota is exhausted. Local LLM
 inference alone does not provide speech recognition. No provider with exhausted
 quota is made unlimited by failover; an available independent route is required.
+
+## Ollama Cloud on Vercel
+
+Use **System → Configure LLM and fallback → Ollama Cloud (Vercel)**. Obtain an
+Ollama Cloud key from <https://ollama.com/settings/keys>, paste it in the modal,
+press **Load model list**, choose an available cloud model, and save. The primary
+route defaults to the external cloud provider when selected. No local Ollama
+installation or `OLLAMA_BASE_URL` is needed. The Express function calls the fixed
+`https://ollama.com/v1` API using the user's own key; Vercel hosts the app/API,
+while Ollama hosts model inference.
+
+Cloud model catalogs may be public: loading a list does not validate a key,
+model permission, or available quota. Actual generation requires a valid account
+credential and is subject to Ollama's limits/charges. With Ollama Cloud as primary,
+text question detection, coaching, chat, practice, preparation and review do not
+require a Gemini key. Realtime can use Chrome/Edge default-microphone browser
+speech recognition. Google Search, document analysis and recorder/tab-audio
+transcription still require Gemini.
+
+A new empty cloud deployment recommends Ollama Cloud in the connection modal.
+Existing configured provider choices are preserved. Catalog requests are
+cancelled when the modal closes or the provider changes; keys never appear in
+URLs, catalog responses, exports, or application logs.

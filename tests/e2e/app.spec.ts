@@ -506,3 +506,44 @@ test('Realtime mode continuously displays speech and drains queued questions wit
   await page.getByRole('button', { name: 'หยุด Realtime', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Realtime Mode', exact: true })).toBeVisible();
 });
+
+test('Ollama Cloud settings load model IDs, save a cloud route and send its key with coaching requests', async ({
+  page,
+}) => {
+  let catalogCredential = '',
+    answerCredential = '',
+    provider = '';
+  await page.route('**/api/llm-models', (route) => {
+    catalogCredential = route.request().headers()['x-llm-api-key'];
+    return route.fulfill({
+      json: { provider: 'ollama-cloud', models: ['fixture-cloud'], credentialVerified: false },
+    });
+  });
+  await page.route('**/api/analyze-question-stream', (route) => {
+    answerCredential = route.request().headers()['x-llm-api-key'];
+    provider = JSON.parse(route.request().headers()['x-llm-config']).provider;
+    return route.fulfill({ contentType: 'text/event-stream', body: sse() });
+  });
+  await page.goto('/');
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'ตั้งค่า LLM และ fallback', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .getByRole('combobox', { name: 'ผู้ให้บริการ', exact: true })
+    .selectOption('ollama-cloud');
+  await dialog
+    .getByLabel('API key ของผู้ให้บริการนี้', { exact: true })
+    .fill('test-ollama-cloud-key');
+  await dialog.getByRole('button', { name: 'โหลดรายชื่อโมเดล', exact: true }).click();
+  await dialog
+    .getByRole('combobox', { name: 'เลือกโมเดลที่มีให้บริการ', exact: true })
+    .selectOption('fixture-cloud');
+  expect(catalogCredential).toBe('test-ollama-cloud-key');
+  await dialog.getByRole('button', { name: 'บันทึกเส้นทาง', exact: true }).click();
+  await expect(page.locator('.model-list')).toContainText('external:ollama-cloud:fixture-cloud');
+  await nav(page, 'พื้นที่เตรียมตัว');
+  await ask(page);
+  await expect(page.locator('.status-tag')).toHaveText('เสร็จแล้ว');
+  expect(answerCredential).toBe('test-ollama-cloud-key');
+  expect(provider).toBe('ollama-cloud');
+});

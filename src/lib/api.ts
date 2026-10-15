@@ -79,10 +79,15 @@ export const headers = () => ({
   ...(getGeminiKey() ? { 'X-Gemini-API-Key': getGeminiKey() } : {}),
   ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
 });
-export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function request<T>(
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: headers(),
+    headers: { ...headers(), ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])

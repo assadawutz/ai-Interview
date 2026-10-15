@@ -1,6 +1,6 @@
 import { z } from 'zod';
 export const routingSchema = z.object({
-  provider: z.enum(['openrouter', 'groq', 'ollama']).default('openrouter'),
+  provider: z.enum(['openrouter', 'groq', 'ollama', 'ollama-cloud']).default('openrouter'),
   model: z
     .string()
     .trim()
