@@ -9,3 +9,5 @@ coverage/
 artifacts/
 test-results/
 playwright-report/
+
+.vercel/

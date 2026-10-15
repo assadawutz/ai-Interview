@@ -109,7 +109,7 @@ Express does not trust arbitrary forwarded IP headers. Behind a proxy, the defau
 
 - Browser storage contains candidate context, question/answer history, practice and recovery drafts. No application database is used.
 - AI calls send their relevant text/documents/audio to Google. Browser recognition may use a separate browser speech service. Observe participants' consent and your provider's data policies.
-- Files are not saved by the Express app. PDF/image uploads are limited to 8 MB; JSON imports to 10 MB.
+- Files are not saved by the Express app. PDF/image uploads are limited to 3 MB; JSON imports to 10 MB.
 - Disabling autosave deletes the recovery draft. It does not delete explicitly saved sessions.
 - Expiration cleanup runs at startup and once per minute while the app is open. Data cannot be physically erased by JavaScript while the browser/app is closed; it is removed on the next opening.
 - Clear all data removes current/legacy session stores and drafts. It does not remove downloaded backups or data retained by external providers.
@@ -140,3 +140,13 @@ Browser tests include both isolated UI fixtures and production frontend → real
 - `src/lib/`: API/SSE client, local storage and migration
 - `tests/`: API/regression, Playwright browser tests and a guarded test-only provider server
 - `scripts/evaluate-live.ts`: optional live quality-evaluation runner
+
+### Vercel deployment
+
+The Vite frontend and the Express API deploy together using `vercel.json` and
+`api/index.ts`. Use Node.js 24. Set `APP_URL` to the production origin, and set
+`GEMINI_API_KEY` and `APP_ACCESS_TOKEN` as server-only environment variables in
+Vercel before enabling AI. Redeploy after changing environment variables.
+Uploads are capped at 3 MB before base64 encoding to fit the platform's 4.5 MB
+request limit. Rate limiting is per warm function instance, not globally shared.
+Without an AI key, the UI remains accessible and health reports `setup_required`.

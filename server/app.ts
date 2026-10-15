@@ -74,7 +74,7 @@ const binary = (allowed: string[]) =>
       .max(12 * 1024 * 1024)
       .regex(/^[A-Za-z0-9+/]*={0,2}$/)
       .refine((v) => v.length % 4 === 0, 'Invalid base64')
-      .refine((v) => Buffer.from(v, 'base64').length <= 8 * 1024 * 1024, 'File too large'),
+      .refine((v) => Buffer.from(v, 'base64').length <= 3 * 1024 * 1024, 'File too large'),
     mimeType: z.enum(allowed as [string, ...string[]]),
   });
 const statusOf = (error: unknown) => {
@@ -190,7 +190,7 @@ export function createApp(options: { provider?: Provider; accessToken?: string }
       message: { error: 'Too many requests. Please wait a minute.' },
     }),
   );
-  app.use(express.json({ limit: '13mb' }));
+  app.use(express.json({ limit: '4mb' }));
   let provider = options.provider;
   function getProvider() {
     if (!provider) {
@@ -655,7 +655,7 @@ export function createApp(options: { provider?: Provider; accessToken?: string }
     res.status(status === 413 ? 413 : status === 400 ? 400 : 500).json({
       error:
         status === 413
-          ? 'File too large. Maximum file size is 8 MB.'
+          ? 'File too large. Maximum file size is 3 MB.'
           : status === 400
             ? 'Malformed JSON request.'
             : 'Unexpected server error. Please retry.',

@@ -32,8 +32,8 @@ export function ProfilePanel({
   const t = (th: string, en: string) => (language === 'th' ? th : en);
   const upload = async (file: File | undefined, fileType: 'resume' | 'jd') => {
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) {
-      notify(t('ไฟล์ต้องไม่เกิน 8 MB', 'Maximum file size is 8 MB.'));
+    if (file.size > 3 * 1024 * 1024) {
+      notify(t('ไฟล์ต้องไม่เกิน 3 MB', 'Maximum file size is 3 MB.'));
       return;
     }
     if (!['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
