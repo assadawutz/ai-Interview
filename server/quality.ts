@@ -1,4 +1,4 @@
-import type { AnswerReview, CandidateContext, PreparationPlan } from '../shared/contracts';
+import type { AnswerReview, CandidateContext, PreparationPlan } from '../shared/contracts.js';
 export function evidenceText(context: CandidateContext, source: string, storyId?: string): string {
   if (source === 'story') {
     const story = context.stories.find((story) => story.id === storyId);
@@ -65,4 +65,4 @@ export function checkPreparation(
     }),
   };
 }
-export { replaceSection } from '../shared/markdown';
+export { replaceSection } from '../shared/markdown.js';

@@ -1,4 +1,4 @@
-import { contextSchema, type CandidateContext, type Settings } from './contracts';
+import { contextSchema, type CandidateContext, type Settings } from './contracts.js';
 export async function fingerprint(value: unknown): Promise<string> {
   const hash = await globalThis.crypto.subtle.digest(
     'SHA-256',

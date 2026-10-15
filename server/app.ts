@@ -21,12 +21,12 @@ import {
   type AnswerReview,
   type Usage,
   sourceSchema,
-} from '../shared/contracts';
-import { config, hasApiKey, estimateCost } from './config';
-import { coachPrompt, safety, reviewPrompt, preparationPrompt } from './prompts';
-import { answerSections, sectionHeaders } from '../shared/markdown';
-import { audioToWav } from './audio';
-import { checkEvidence, checkPreparation, replaceSection } from './quality';
+} from '../shared/contracts.js';
+import { config, hasApiKey, estimateCost } from './config.js';
+import { coachPrompt, safety, reviewPrompt, preparationPrompt } from './prompts.js';
+import { answerSections, sectionHeaders } from '../shared/markdown.js';
+import { audioToWav } from './audio.js';
+import { checkEvidence, checkPreparation, replaceSection } from './quality.js';
 
 export interface Provider {
   generate(params: GenerateContentParameters): Promise<GenerateContentResponse>;
@@ -167,7 +167,11 @@ export function createApp(options: { provider?: Provider; accessToken?: string }
       const allowed = config.appUrl
         ? new URL(config.appUrl).origin
         : `${req.protocol}://${req.get('host')}`;
-      if (req.headers.origin !== allowed)
+      const deploymentOrigin =
+        process.env.VERCEL === '1' && process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : undefined;
+      if (req.headers.origin !== allowed && req.headers.origin !== deploymentOrigin)
         return res.status(403).json({ error: 'This origin is not allowed.' });
     }
     if (accessToken) {
