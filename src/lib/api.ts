@@ -1,6 +1,7 @@
 import { sourceSchema, usageSchema, answerReviewSchema } from '../../shared/contracts';
 import { z } from 'zod';
 import { normalizeGeminiKey } from '../../shared/credentials';
+import { routingSchema, defaultRouting, type LLMRouting } from '../../shared/routing';
 let accessToken = '';
 const GEMINI_KEY_STORAGE = 'interview-pulse:gemini-key';
 export function getGeminiKey() {
@@ -32,6 +33,35 @@ export function clearGeminiKey() {
   sessionStorage.removeItem(GEMINI_KEY_STORAGE);
   localStorage.removeItem(GEMINI_KEY_STORAGE);
 }
+const LLM_STORAGE = 'interview-pulse:llm-connection';
+export function getLLMConnection(): { route: LLMRouting; key: string } {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(LLM_STORAGE) || '{}');
+    return {
+      route: routingSchema.parse(value.route || {}),
+      key: typeof value.key === 'string' ? value.key : '',
+    };
+  } catch {
+    return { route: defaultRouting, key: '' };
+  }
+}
+export function saveLLMConnection(route: LLMRouting, value: string) {
+  const parsed = routingSchema.parse(route);
+  const key = parsed.provider === 'ollama' ? '' : normalizeGeminiKey(value);
+  if (
+    (parsed.primary === 'external' || parsed.fallback) &&
+    (!parsed.model || (!key && parsed.provider !== 'ollama'))
+  )
+    throw new Error('Enter the provider model ID and API key (Ollama does not require a key).');
+  sessionStorage.setItem(LLM_STORAGE, JSON.stringify({ route: parsed, key }));
+}
+export function clearLLMConnection() {
+  sessionStorage.removeItem(LLM_STORAGE);
+}
+function routingHeaders() {
+  const { route, key } = getLLMConnection();
+  return { 'X-LLM-Config': JSON.stringify(route), ...(key ? { 'X-LLM-API-Key': key } : {}) };
+}
 let requestTimeoutMs = 75000;
 export function setRequestTimeoutMs(value?: number) {
   if (value !== undefined && Number.isFinite(value) && value >= 5000 && value <= 300000)
@@ -45,6 +75,7 @@ export function getAccessToken() {
 }
 export const headers = () => ({
   'Content-Type': 'application/json',
+  ...routingHeaders(),
   ...(getGeminiKey() ? { 'X-Gemini-API-Key': getGeminiKey() } : {}),
   ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
 });

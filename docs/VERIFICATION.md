@@ -23,8 +23,8 @@ The fixture server is guarded by `INTERVIEW_TEST_MODE=1`, is not imported by `se
 ## Verified local run for v2.0
 
 - Formatting, strict TypeScript checks and production build passed.
-- **32 regression/API/quality tests passed.**
-- **23 browser tests passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
+- **43 regression/API/quality/adapter tests passed.**
+- **25 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
 - `npm audit` reported **0 known vulnerabilities** in the installed dependency tree at this check.
 - The live evaluator stopped before generation because the server key is not configured. No live Gemini quality score is claimed.
 
@@ -53,3 +53,18 @@ requests use separate provider credentials and that a later credential-free
 request cannot inherit another user's key. Health returns credential presence
 only. No real Gemini credential was used for these tests; saving validates key
 format, while provider metadata checks and generation still need a real key.
+
+## Local LLM, quota failover and Realtime
+
+Tests cover Gemini 429 → independent Ollama route, no same-provider quota retry,
+per-credential cooldown, keyless local-primary routing, request isolation, no
+restart after partial text, and refusal to drop Google grounding silently.
+AI SDK adapter tests inspect real OpenAI-compatible JSON requests and streamed
+responses through a deterministic HTTP transport; they do not run a local model.
+
+Browser checks cover saved Ollama routing and Realtime capture → visible rolling
+transcript → question detection → sequential automatic answers, duplicate
+filtering, recognition restart and stop. Speech events/audio are synthetic.
+There is no Ollama daemon or installed model in this workspace, so model quality,
+CPU/GPU latency and real microphone recognition remain unverified. Cloud checks
+confirm localhost cannot be selected as a reachable Vercel Ollama service.

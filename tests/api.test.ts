@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { GenerateContentResponse } from '@google/genai';
 import { createApp, type Provider } from '../server/app';
 import { config } from '../server/config';
+import { routingSchema, type LLMRouting } from '../shared/routing';
 // Never use a developer's real credentials or model overrides during regression tests.
 config.apiKey = '';
 config.appUrl = '';
@@ -48,8 +49,14 @@ async function withServer(
   fake?: Provider,
   accessToken = '',
   providerFactory?: (key: string) => Provider,
+  externalFactory?: (route: LLMRouting, key: string) => Provider,
 ) {
-  const server = createApp({ provider: fake, accessToken, providerFactory }).listen(0, '127.0.0.1');
+  const server = createApp({
+    provider: fake,
+    accessToken,
+    providerFactory,
+    externalFactory,
+  }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
   assert(address && typeof address !== 'string');
@@ -409,6 +416,191 @@ test('browser credentials are request-scoped across concurrent requests and neve
       async generate() {
         await new Promise((resolve) => setTimeout(resolve, key === first ? 25 : 5));
         return response(key === first ? 'FIRST' : 'SECOND');
+      },
+    }),
+  );
+});
+
+const ollamaHeaders = {
+  'X-LLM-Config': JSON.stringify(
+    routingSchema.parse({ provider: 'ollama', model: 'fixture:local', fallback: true }),
+  ),
+};
+test('routing controller fails over from Gemini quota to Ollama once and reports the actual route', () => {
+  let nativeCalls = 0,
+    externalCalls = 0;
+  return withServer(
+    async (base) => {
+      const result = await post(
+        base,
+        'analyze-question-stream',
+        { question: 'Question?', verifyAnswer: false },
+        ollamaHeaders,
+      );
+      const body = await result.text();
+      assert.match(body, /external:ollama:fixture:local/);
+      assert.match(body, /"type":"done"/);
+      assert.equal(nativeCalls, 1);
+      assert.equal(externalCalls, 1);
+    },
+    {
+      ...provider,
+      async stream() {
+        nativeCalls++;
+        throw Object.assign(new Error('quota'), { status: 429 });
+      },
+    },
+    '',
+    undefined,
+    () => ({
+      ...provider,
+      async stream(params) {
+        externalCalls++;
+        return provider.stream(params);
+      },
+    }),
+  );
+});
+test('partial output never restarts on another LLM even when quota is reached', () => {
+  let externalCalls = 0;
+  return withServer(
+    async (base) => {
+      const result = await post(
+        base,
+        'analyze-question-stream',
+        { question: 'Question?' },
+        ollamaHeaders,
+      );
+      const body = await result.text();
+      assert.match(body, /"type":"error"/);
+      assert.doesNotMatch(body, /"type":"done"/);
+      assert.equal(externalCalls, 0);
+    },
+    {
+      ...provider,
+      async stream() {
+        return (async function* () {
+          yield response('partial');
+          throw Object.assign(new Error('quota'), { status: 429 });
+        })();
+      },
+    },
+    '',
+    undefined,
+    () => {
+      externalCalls++;
+      return provider;
+    },
+  );
+});
+test('Ollama works as a keyless primary text route and does not leak into other requests', () => {
+  return withServer(
+    async (base) => {
+      const headers = {
+        'X-LLM-Config': JSON.stringify(
+          routingSchema.parse({ provider: 'ollama', model: 'fixture:local', primary: 'external' }),
+        ),
+      };
+      const health = await (await fetch(base + '/api/health', { headers })).json();
+      assert.equal(health.hasApiKey, true);
+      assert.equal(health.models.balanced, 'external:ollama:fixture:local');
+      const result = await post(
+        base,
+        'copilot-chat',
+        { messages: [{ role: 'user', text: 'Explain indexes' }] },
+        headers,
+      );
+      assert.equal(result.status, 200);
+      assert.equal((await (await fetch(base + '/api/health')).json()).hasApiKey, false);
+    },
+    undefined,
+    '',
+    undefined,
+    () => provider,
+  );
+});
+test('Gemini quota without an independent route is not retried on the same provider', () => {
+  let calls = 0;
+  return withServer(
+    async (base) => {
+      const result = await post(base, 'copilot-chat', {
+        messages: [{ role: 'user', text: 'Explain indexes' }],
+      });
+      assert.equal(result.status, 429);
+      assert.equal(calls, 1);
+    },
+    {
+      ...provider,
+      async generate() {
+        calls++;
+        throw Object.assign(new Error('quota'), { status: 429 });
+      },
+    },
+  );
+});
+test('Google Search cannot silently fall back to an ungrounded external text model', () => {
+  let calls = 0;
+  return withServer(
+    async (base) => {
+      const result = await post(
+        base,
+        'analyze-question-stream',
+        { question: 'Current company facts?', useSearch: true },
+        ollamaHeaders,
+      );
+      assert.doesNotMatch(await result.text(), /"type":"done"/);
+      assert.equal(calls, 0);
+    },
+    {
+      ...provider,
+      async stream() {
+        throw Object.assign(new Error('quota'), { status: 429 });
+      },
+    },
+    '',
+    undefined,
+    () => {
+      calls++;
+      return provider;
+    },
+  );
+});
+
+test('quota cooldown routes later text requests directly to an independent provider', () => {
+  let nativeCalls = 0,
+    backupCalls = 0;
+  return withServer(
+    async (base) => {
+      const headers = {
+        ...ollamaHeaders,
+        'X-Gemini-API-Key': 'cooldown-fixture-credential-123456789',
+      };
+      for (let n = 0; n < 2; n++) {
+        const result = await post(
+          base,
+          'copilot-chat',
+          { messages: [{ role: 'user', text: 'Explain indexes' }] },
+          headers,
+        );
+        assert.equal(result.status, 200);
+      }
+      assert.equal(nativeCalls, 1);
+      assert.equal(backupCalls, 2);
+    },
+    {
+      ...provider,
+      async generate() {
+        nativeCalls++;
+        throw Object.assign(new Error('daily quota'), { status: 429 });
+      },
+    },
+    '',
+    undefined,
+    () => ({
+      ...provider,
+      async generate(params) {
+        backupCalls++;
+        return provider.generate(params);
       },
     }),
   );

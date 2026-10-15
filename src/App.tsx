@@ -43,6 +43,7 @@ import {
   setAccessToken,
   setRequestTimeoutMs,
   clearGeminiKey,
+  clearLLMConnection,
 } from './lib/api';
 import {
   clearAll,
@@ -265,6 +266,9 @@ export default function App() {
   useEffect(() => {
     if (tab !== 'workspace') audio.stop();
   }, [tab]);
+  useEffect(() => {
+    interview.setRealtime(settings.realtimeMode && audio.listening);
+  }, [settings.realtimeMode, audio.listening, interview.setRealtime]);
   const updateSettings = (updated: Settings) => {
     setSettings(updated);
     if (!updated.autosave && settings.autosave) {
@@ -345,6 +349,7 @@ export default function App() {
         clearAll(localStorage);
         setAccessToken('');
         clearGeminiKey();
+        clearLLMConnection();
         void refreshHealth();
         setSessions([]);
         setContext(defaultContext);
@@ -768,7 +773,11 @@ export default function App() {
                           type="button"
                           className={`button audio-button ${audio.listening ? 'recording' : ''}`}
                           disabled={!canAI && !audio.listening}
-                          onClick={() => void audio.toggle()}
+                          onClick={() => {
+                            if (audio.listening || audio.starting) interview.setRealtime(false);
+                            else updateSettings({ ...settings, realtimeMode: false });
+                            void audio.toggle();
+                          }}
                         >
                           {audio.starting ? (
                             <LoaderCircle size={16} className="spin" />
@@ -783,6 +792,26 @@ export default function App() {
                               ? t('กำลังเปิด…', 'Starting…')
                               : t('เปิดรับเสียง', 'Start listening')}
                         </button>
+                        <button
+                          type="button"
+                          className={`button ${settings.realtimeMode && audio.listening ? 'primary' : ''}`}
+                          disabled={!canAI && !audio.listening}
+                          aria-pressed={settings.realtimeMode && audio.listening}
+                          onClick={() => {
+                            if (settings.realtimeMode && audio.listening) {
+                              audio.stop();
+                              interview.setRealtime(false);
+                              updateSettings({ ...settings, realtimeMode: false });
+                            } else {
+                              updateSettings({ ...settings, realtimeMode: true, autoSpeak: false });
+                              if (!audio.listening) void audio.toggle();
+                            }
+                          }}
+                        >
+                          {settings.realtimeMode && audio.listening
+                            ? t('หยุด Realtime', 'Stop realtime')
+                            : 'Realtime Mode'}
+                        </button>
                         <span className="micro muted input-count">{input.length}/5,000</span>
                         <button className="button primary" disabled={!input.trim() || !canAI}>
                           <Sparkles size={15} />
@@ -791,6 +820,14 @@ export default function App() {
                         </button>
                       </div>
                     </form>
+                    {settings.realtimeMode && (
+                      <p className="realtime-help micro muted">
+                        {t(
+                          'Realtime: รับเสียงต่อเนื่อง → แสดงข้อความ → จับคำถาม → ตอบอัตโนมัติตามคิว ใช้ไมค์เริ่มต้นของ Chrome/Edge เพื่อถอดเสียงผ่านเบราว์เซอร์โดยไม่ใช้ Gemini API; เสียงจากแท็บหรือไมค์ที่ระบุยังต้องใช้โควตาถอดเสียง Gemini',
+                          'Realtime: continuous listening → transcript → question detection → queued answers. Chrome/Edge default-microphone browser speech does not use Gemini API quota; tab audio or explicit devices still require Gemini transcription quota.',
+                        )}
+                      </p>
+                    )}
                     {(audio.status || audio.transcript) && (
                       <div className="transcript-panel">
                         <div>
@@ -804,7 +841,15 @@ export default function App() {
                         </div>
                         {audio.transcript && (
                           <>
-                            <p>{audio.transcript}</p>
+                            <p
+                              className="live-transcript"
+                              aria-label={t('ข้อความที่ได้ยิน', 'Live transcript')}
+                              ref={(node) => {
+                                if (node && audio.listening) node.scrollTop = node.scrollHeight;
+                              }}
+                            >
+                              {audio.transcript}
+                            </p>
                             <button
                               className="text-button"
                               onClick={() => {
@@ -1053,6 +1098,7 @@ export default function App() {
                       <input
                         type="checkbox"
                         checked={settings.autoSpeak}
+                        disabled={settings.realtimeMode && audio.listening}
                         onChange={(e) =>
                           updateSettings({ ...settings, autoSpeak: e.target.checked })
                         }

@@ -12,6 +12,7 @@ import {
   remembersGeminiKey,
 } from '../lib/api';
 import { Modal } from './Modal';
+import { LLMSettings } from './LLMSettings';
 export function SystemPanel({
   health,
   language,
@@ -60,7 +61,7 @@ export function SystemPanel({
         </div>
         <div>
           <span className={`system-dot ${health?.hasApiKey ? 'good' : ''}`} />
-          <strong>Gemini API</strong>
+          <strong>AI / LLM</strong>
           <span>
             {health?.hasApiKey
               ? t(
@@ -252,6 +253,12 @@ export function SystemPanel({
           <button className="button primary">{t('ใช้ token นี้', 'Apply token')}</button>
         </form>
       )}
+      <LLMSettings
+        language={language}
+        localSupported={health?.localLLMSupported}
+        onRefresh={onRefresh}
+        notify={notify}
+      />
       <div className="diagnostics-control">
         <button
           className="button"

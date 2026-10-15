@@ -14,6 +14,7 @@ export function answerFingerprint(
   context: CandidateContext,
   settings: Settings,
   tone: string,
+  routing?: unknown,
 ) {
   return fingerprint({
     question,
@@ -25,5 +26,6 @@ export function answerFingerprint(
     verifyAnswers: settings.verifyAnswers,
     taskType: settings.taskType,
     tone,
+    routing,
   });
 }

@@ -168,3 +168,65 @@ key takes precedence over the optional server key; removing it restores the
 server-key behavior. Keys are excluded from session exports and recovery backups.
 **Save** checks format, not validity: use **Check provider model metadata** to
 check account/model access; generation and quota still require a real request.
+
+## Ollama, independent LLM fallback, and Realtime Mode
+
+Install [Ollama](https://ollama.com/) and an appropriate local model from its
+library. Start Ollama (`ollama serve` if it is not already running), then run
+`ollama list` to copy the exact installed model name. In another terminal:
+
+```sh
+git clone https://github.com/assadawutz/ai-Interview.git
+cd ai-Interview
+npm ci
+npm run build
+HOST=127.0.0.1 NODE_ENV=production npm start
+```
+
+Open `http://localhost:3000` → **System → Configure LLM and fallback**. Select
+**Ollama**, enter the installed model ID, and choose it as primary or enable
+automatic failover from Gemini. Ollama needs no API key. The server defaults to
+`http://127.0.0.1:11434`; `OLLAMA_BASE_URL` is a server-only override for a trusted
+Ollama service. Slow CPU models may need `AI_TIMEOUT_MS=180000`.
+
+Vercel cannot call a user's computer at `localhost`. Its settings disable local
+Ollama configuration unless the deployment operator has explicitly configured
+a reachable server URL. Run the app locally for local inference; do not expose
+an unauthenticated Ollama port to the public internet.
+
+OpenRouter and Groq are also supported using their own provider key and exact
+model ID. These routes send relevant text/context to the selected provider,
+subject to that provider's access, quota, and charges. Routing and provider keys
+are saved only in the current tab and excluded from exports/recovery backups.
+**Clear all data** removes them. Model metadata checks do not prove generation
+access or quota.
+
+The routing controller makes at most one failover per operation, only before
+answer text begins. Gemini 429 responses do not trigger a second Gemini-model
+call. With a configured independent fallback, a bounded per-instance cooldown
+skips Gemini text calls for 60 seconds after a quota failure (15 minutes when
+the provider explicitly reports a daily limit); subsequent calls
+can continue through the independent provider. This does not restore Gemini's
+daily quota. Use Ollama or the independent provider as primary for a full day
+without Gemini calls. Warm-instance cooldown state is not shared across server
+instances or deployments.
+
+Text detection, preparation, coaching, chat, practice and consistency review
+can use external LLMs. Google Search and document/audio features remain on
+Gemini; the text adapter rejects unsupported tools/media instead of silently
+dropping grounding or claiming it performed a search.
+
+In the workspace, press **Realtime Mode** to listen continuously, display the
+rolling transcript, detect questions and automatically drain the speech-question
+queue in order. One answer finishes before the next starts; duplicates are
+filtered. Browser speech restarts after normal end-of-recognition events. Stop
+Realtime/listening or leave the workspace to stop capture. Starting Realtime
+disables automatic spoken answers to avoid feeding output back into the mic.
+
+For independence from Gemini audio quota, use Chrome/Edge's default microphone
+with browser speech recognition. That service may still send audio to the
+browser vendor; this is not a claim of fully offline speech recognition. Tab
+audio, explicit microphone devices and the recorder fallback still use Gemini
+transcription and can stop working when its quota is exhausted. Local LLM
+inference alone does not provide speech recognition. No provider with exhausted
+quota is made unlimited by failover; an available independent route is required.

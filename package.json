@@ -17,10 +17,12 @@
     "eval:live": "tsx scripts/evaluate-live.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.69",
     "@fontsource/noto-sans-thai": "^5.3.0",
     "@google/genai": "^2.30.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "ai": "^7.0.141",
     "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "express-rate-limit": "^8.0.0",

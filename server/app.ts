@@ -1,10 +1,19 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHash } from 'node:crypto';
+// Bounded, per-instance cooldowns store only credential hashes, never keys.
+const quotaCooldowns = new Map<string, number>();
 import { once } from 'node:events';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { normalizeGeminiKey } from '../shared/credentials.js';
+import {
+  routingSchema,
+  defaultRouting,
+  externalModel,
+  type LLMRouting,
+} from '../shared/routing.js';
+import { externalProvider, textOnly, ollamaDeploymentSupported } from './llm.js';
 import { z } from 'zod';
 import {
   GoogleGenAI,
@@ -81,7 +90,11 @@ const binary = (allowed: string[]) =>
   });
 const statusOf = (error: unknown) => {
   if (error && typeof error === 'object') {
-    const value = Number(('status' in error && error.status) || ('code' in error && error.code));
+    const value = Number(
+      ('status' in error && error.status) ||
+        ('statusCode' in error && error.statusCode) ||
+        ('code' in error && error.code),
+    );
     return Number.isFinite(value) ? value : 500;
   }
   return 500;
@@ -96,7 +109,16 @@ function publicError(error: unknown): ApiError {
   if (error instanceof Error && /abort|timeout/i.test(error.name + error.message))
     return new ApiError(504, 'AI request timed out or was canceled. Please retry.');
   const status = statusOf(error);
-  if (status === 429) return new ApiError(429, 'AI quota or rate limit reached. Wait and retry.');
+  if (status === 429)
+    return new ApiError(
+      429,
+      'Provider quota or rate limit reached. Check its usage/billing or configure an independent LLM fallback in Settings.',
+    );
+  if (status === 400)
+    return new ApiError(
+      400,
+      'This model or route does not support the request. External routes support text only; turn off Google Search and use Gemini for documents/audio.',
+    );
   if (status === 401 || status === 403)
     return new ApiError(
       502,
@@ -131,10 +153,18 @@ export function createApp(
     provider?: Provider;
     accessToken?: string;
     providerFactory?: (key: string) => Provider;
+    externalFactory?: (route: LLMRouting, key: string) => Provider;
   } = {},
 ) {
   // Credentials and clients belong to one request, never a shared process-wide user.
-  const requestProvider = new AsyncLocalStorage<{ key: string; provider?: Provider }>();
+  const requestProvider = new AsyncLocalStorage<{
+    key: string;
+    provider?: Provider;
+    route: LLMRouting;
+    externalKey: string;
+    external?: Provider;
+    nativeLimited?: boolean;
+  }>();
   const app = express();
   app.disable('x-powered-by');
   // Vite requires inline styles/scripts in development. Production is self-hosted.
@@ -164,24 +194,29 @@ export function createApp(
   app.use('/api', (req, res, next) => {
     try {
       const key = normalizeGeminiKey(req.get('X-Gemini-API-Key') || '');
-      requestProvider.run({ key }, next);
+      const route = routingSchema.parse(JSON.parse(req.get('X-LLM-Config') || '{}'));
+      const externalKey = normalizeGeminiKey(req.get('X-LLM-API-Key') || '');
+      requestProvider.run({ key, route, externalKey }, next);
     } catch {
-      return res
-        .status(400)
-        .json({ error: 'Paste only the Gemini API key value, without spaces or line breaks.' });
+      return res.status(400).json({
+        error:
+          'Invalid AI routing settings or credential. Paste a key value without spaces or line breaks.',
+      });
     }
   });
   app.get('/api/health', (_req, res) =>
     res.json({
       requestTimeoutMs: config.timeoutMs + 5000,
       status:
-        options.provider || requestProvider.getStore()?.key || hasApiKey()
+        options.provider || requestProvider.getStore()?.key || hasApiKey() || hasExternal()
           ? 'ready'
           : 'setup_required',
-      hasApiKey: !!options.provider || !!requestProvider.getStore()?.key || hasApiKey(),
+      hasApiKey:
+        !!options.provider || !!requestProvider.getStore()?.key || hasApiKey() || hasExternal(),
       requiresAccessToken: !!(options.accessToken ?? config.accessToken),
-      models: config.models,
+      models: getModels(),
       pricingConfigured: Object.keys(config.pricing).length > 0,
+      localLLMSupported: ollamaDeploymentSupported(),
     }),
   );
   const accessToken = options.accessToken ?? config.accessToken;
@@ -228,7 +263,7 @@ export function createApp(
       inspect: (model, signal) => client.models.get({ model, config: { abortSignal: signal } }),
     };
   }
-  function getProvider() {
+  function getNativeProvider() {
     if (options.provider) return options.provider;
     const current = requestProvider.getStore();
     if (current?.key) return (current.provider ??= makeProvider(current.key));
@@ -238,6 +273,99 @@ export function createApp(
         'Add your Gemini API key in Settings, or set GEMINI_API_KEY on the server.',
       );
     return (serverProvider ??= makeProvider(config.apiKey));
+  }
+  function hasExternal() {
+    const state = requestProvider.getStore();
+    return !!(
+      (state?.externalKey || state?.route.provider === 'ollama') &&
+      state?.route.model &&
+      (state.route.fallback || state.route.primary === 'external')
+    );
+  }
+  function quotaIdentity() {
+    const key = requestProvider.getStore()?.key || config.apiKey;
+    return key ? createHash('sha256').update(key).digest('hex') : undefined;
+  }
+  function coolingDown() {
+    const identity = quotaIdentity();
+    if (!identity) return false;
+    const until = quotaCooldowns.get(identity) || 0;
+    if (until <= Date.now()) {
+      quotaCooldowns.delete(identity);
+      return false;
+    }
+    return true;
+  }
+  function getModels() {
+    const state = requestProvider.getStore();
+    const route = state?.route || defaultRouting;
+    const models = route.geminiModel
+      ? {
+          ...config.models,
+          fast: route.geminiModel,
+          balanced: route.geminiModel,
+          deep: route.geminiModel,
+        }
+      : { ...config.models };
+    if (hasExternal()) {
+      models.fallback = externalModel(route);
+      if (
+        route.primary === 'external' ||
+        state?.nativeLimited ||
+        coolingDown() ||
+        !(options.provider || state?.key || hasApiKey())
+      )
+        models.fast = models.balanced = models.deep = externalModel(route);
+    }
+    return models;
+  }
+  function getProvider(): Provider {
+    if (!hasExternal()) return getNativeProvider();
+    const state = requestProvider.getStore()!;
+    const select = (model: string) => {
+      if (!model.startsWith('external:')) return getNativeProvider();
+      if (state.route.provider === 'ollama' && !ollamaDeploymentSupported())
+        throw new ApiError(
+          409,
+          'Vercel cannot reach Ollama on your computer. Run this app locally with Ollama, or configure a trusted OLLAMA_BASE_URL on the server.',
+        );
+      return (state.external ??= (options.externalFactory || externalProvider)(
+        state.route,
+        state.externalKey,
+      ));
+    };
+    return {
+      generate: (params) => select(params.model).generate(params),
+      stream: (params) => select(params.model).stream(params),
+      inspect: (model, signal) => {
+        const provider = select(model);
+        if (!provider.inspect) throw new ApiError(501, 'Model inspection is unavailable.');
+        return provider.inspect(model, signal);
+      },
+    };
+  }
+  // Bounded routing controller: a single failover, with no restart after partial output.
+  function fallbackModel(model: string, error: unknown, params: GenerateContentParameters) {
+    if (model.startsWith('external:') || ![404, 429, 500, 502, 503, 504].includes(statusOf(error)))
+      return undefined;
+    const state = requestProvider.getStore();
+    if (hasExternal() && state?.route.fallback && textOnly(params)) {
+      if (statusOf(error) === 429) {
+        state.nativeLimited = true;
+        const identity = quotaIdentity();
+        if (identity) {
+          if (quotaCooldowns.size >= 512)
+            quotaCooldowns.delete(quotaCooldowns.keys().next().value!);
+          const daily = error instanceof Error && /perday|per_day|daily/i.test(error.message);
+          quotaCooldowns.set(identity, Date.now() + (daily ? 15 * 60000 : 60000));
+        }
+      }
+      return externalModel(state.route);
+    }
+    if (statusOf(error) === 429) return undefined;
+    return model !== getModels().fallback && !getModels().fallback.startsWith('external:')
+      ? getModels().fallback
+      : undefined;
   }
   function requestSignal(res: Response) {
     const controller = new AbortController();
@@ -257,16 +385,12 @@ export function createApp(
         config: { maxOutputTokens: config.maxOutputTokens, ...params.config, abortSignal: signal },
       });
     } catch (error) {
-      if (
-        !fallback ||
-        signal.aborted ||
-        params.model === config.models.fallback ||
-        ![404, 429, 500, 502, 503, 504].includes(statusOf(error))
-      )
-        throw error;
+      const next =
+        fallback && !signal.aborted ? fallbackModel(params.model, error, params) : undefined;
+      if (!next) throw error;
       return getProvider().generate({
         ...params,
-        model: config.models.fallback,
+        model: next,
         config: { maxOutputTokens: config.maxOutputTokens, ...params.config, abortSignal: signal },
       });
     }
@@ -300,7 +424,7 @@ export function createApp(
     async (data, res, signal) => {
       const response = await generate(
         {
-          model: config.models.fast,
+          model: getModels().fast,
           contents: JSON.stringify(data),
           config: {
             systemInstruction: `${safety} Detect substantive interview questions in the transcript. Ignore candidate answers, filler and incomplete fragments. Extract the question in the original language without adding phonetics. Check recent questions for semantic duplicates. Confidence is only question-detection confidence, 0-100.`,
@@ -345,7 +469,7 @@ export function createApp(
       }, 15000);
       const started = Date.now();
       let receivedText = false;
-      let selected = config.models[data.speed];
+      let selected = getModels()[data.speed];
       try {
         const run = async (model: string) => {
           await send({ type: 'meta', model });
@@ -414,7 +538,7 @@ export function createApp(
           if (data.verifyAnswer) {
             await send({ type: 'phase', phase: 'review' });
             try {
-              reviewModel = config.models.fast;
+              reviewModel = getModels().fast;
               const reviewSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
               const response = await generate(
                 {
@@ -477,17 +601,19 @@ export function createApp(
         try {
           await run(selected);
         } catch (error) {
-          if (
-            receivedText ||
-            signal.aborted ||
-            selected === config.models.fallback ||
-            ![404, 429, 500, 502, 503, 504].includes(statusOf(error))
-          )
-            throw error;
-          selected = config.models.fallback;
+          const next =
+            !receivedText && !signal.aborted
+              ? fallbackModel(selected, error, {
+                  model: selected,
+                  contents: data.question,
+                  config: { tools: data.useSearch ? [{ googleSearch: {} }] : undefined },
+                })
+              : undefined;
+          if (!next) throw error;
+          selected = next;
           await send({
             type: 'notice',
-            message: 'Primary model unavailable; using the configured fallback.',
+            message: `Primary model unavailable; routing to ${selected}.`,
           });
           await run(selected);
         }
@@ -506,7 +632,7 @@ export function createApp(
   post('/api/preparation-plan', z.object(base), async (data, res, signal) => {
     const response = await generate(
       {
-        model: config.models.balanced,
+        model: getModels().balanced,
         contents: JSON.stringify(data),
         config: {
           systemInstruction: `${preparationPrompt} Respond in ${data.language === 'th' ? 'Thai' : 'English'}.`,
@@ -525,7 +651,7 @@ export function createApp(
     const client = getProvider();
     if (!client.inspect) throw new ApiError(501, 'Model inspection is unavailable.');
     const results = await Promise.all(
-      [...new Set(Object.values(config.models))].map(async (model) => {
+      [...new Set(Object.values(getModels()))].map(async (model) => {
         try {
           const metadata = await client.inspect!(model, signal);
           return {
@@ -553,7 +679,7 @@ export function createApp(
     async (data, res, signal) => {
       const response = await generate(
         {
-          model: config.models.balanced,
+          model: getModels().balanced,
           contents: JSON.stringify(data),
           config: {
             systemInstruction: `${safety} Research this company using web search. Respond in ${data.language === 'en' ? 'English' : 'Thai'}. Summarize products, recent dated news, hiring priorities and 3 useful questions to ask. Distinguish verified facts from inference. Do not imply access to private LinkedIn data.`,
@@ -578,7 +704,7 @@ export function createApp(
     async (data, res, signal) => {
       const response = await generate(
         {
-          model: config.models.balanced,
+          model: getModels().balanced,
           contents: data.messages.map((m) => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.text }],
@@ -598,7 +724,7 @@ export function createApp(
     const schema = data.question ? evaluation : z.object({ nextQuestion: text() });
     const response = await generate(
       {
-        model: config.models.balanced,
+        model: getModels().balanced,
         contents: JSON.stringify(data),
         config: {
           systemInstruction: `${safety} You are conducting a mock interview in ${data.language === 'en' ? 'English' : 'Thai'}. ${data.question ? 'Evaluate only the submitted answer against the actual question and role with integer scores 0-5. Relevance: all parts answered; structure: clear logical order; evidence: correct technical reasoning or real concrete examples; clarity: understandable precise language. Identify technical errors without rewarding confident misinformation. Score 0 for absent content, 1 for major errors, 2 for incomplete, 3 for adequate, 4 for strong, 5 for accurate and complete. Give actionable feedback, strengths, improvements and a suggestedAnswer using only supplied personal facts or explicit placeholders. For coding, include edge cases and complexity, never claim execution. Ask one contextual follow-up. Scores are coaching feedback, not hiring probability.' : 'Ask one relevant opening question for this role, requested taskType and difficulty. Avoid repeating history.'}`,

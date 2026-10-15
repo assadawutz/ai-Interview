@@ -23,6 +23,7 @@ export function useAudio(
   const latest = useRef({ settings, add, questions, notify });
   latest.current = { settings, add, questions, notify };
   const fragments = useRef('');
+  const heard = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detection = useRef<AbortController | null>(null),
@@ -118,6 +119,7 @@ export function useAudio(
     }
     resetPipeline();
     setTranscript('');
+    heard.current = '';
     setStarting(true);
     setStatus('Requesting audio permission…');
     await service.current!.start({
@@ -130,11 +132,12 @@ export function useAudio(
       onStop: resetPipeline,
       onTranscript: (text, final) => {
         if (!final) {
-          setTranscript(`${fragments.current} ${text}`.trim());
+          setTranscript(`${heard.current} ${text}`.trim());
           return;
         }
         fragments.current = `${fragments.current} ${text}`.slice(-10000);
-        setTranscript(fragments.current.trim());
+        heard.current = `${heard.current} ${text}`.trim().slice(-12000);
+        setTranscript(heard.current);
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(flush, 1200);
         maxTimer.current ??= setTimeout(flush, 6000);
@@ -155,6 +158,9 @@ export function useAudio(
     status,
     toggle,
     stop,
-    clearTranscript: () => setTranscript(''),
+    clearTranscript: () => {
+      heard.current = '';
+      setTranscript('');
+    },
   };
 }

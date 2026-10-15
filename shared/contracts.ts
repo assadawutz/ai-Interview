@@ -184,6 +184,7 @@ export const settingsSchema = z.object({
   speed: speedSchema.default('balanced'),
   useSearch: z.boolean().default(false),
   autoSpeak: z.boolean().default(false),
+  realtimeMode: z.boolean().default(false),
   quickStudy: z.boolean().default(false),
   minConfidence: z.number().min(0).max(100).default(60),
   autoExpireHours: z.number().min(1).max(720).default(24),
@@ -222,6 +223,7 @@ export type Health = {
   models: Record<string, string>;
   pricingConfigured: boolean;
   requestTimeoutMs?: number;
+  localLLMSupported?: boolean;
 };
 
 export const detectionSchema = z.object({

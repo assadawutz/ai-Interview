@@ -7,7 +7,7 @@ import {
   type Settings,
 } from '../../shared/contracts';
 import { answerFingerprint } from '../../shared/fingerprint';
-import { streamAnswer } from '../lib/api';
+import { streamAnswer, getLLMConnection } from '../lib/api';
 import { parseStreamedAnswer, isDuplicateQuestion } from '../utils/answerParser';
 
 export function useInterview(
@@ -16,16 +16,18 @@ export function useInterview(
   notify: (message: string) => void,
   speak: (text: string) => void,
 ) {
+  const routingIdentity = JSON.stringify(getLLMConnection().route);
   const [questions, setQuestions] = useState<QueuedQuestion[]>([]);
   const [answers, setAnswers] = useState<SmartAnswer[]>([]);
   const [current, setCurrent] = useState<SmartAnswer | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [realtime, setRealtime] = useState(false);
   const [phase, setPhase] = useState<'generation' | 'review'>('generation');
   const [stale, setStale] = useState(false);
   const controller = useRef<AbortController | null>(null);
-  const latest = useRef({ context, settings, answers, questions, notify, speak });
-  latest.current = { context, settings, answers, questions, notify, speak };
+  const latest = useRef({ context, settings, answers, questions, notify, speak, realtime });
+  latest.current = { context, settings, answers, questions, notify, speak, realtime };
   const updateQuestion = (id: string, patch: Partial<QueuedQuestion>) =>
     setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
   const cancel = useCallback(() => {
@@ -55,6 +57,7 @@ export function useInterview(
           state.context,
           state.settings,
           tone,
+          getLLMConnection().route,
         );
         if (controller.current !== token) return;
         const saved = state.answers.find(
@@ -138,7 +141,8 @@ export function useInterview(
         updateQuestion(q.id, { status: 'answered', error: undefined });
         const needsAttention =
           answer.review?.verdict !== 'consistent' && answer.reviewStatus !== 'skipped';
-        if (state.settings.autoSpeak && !needsAttention) state.speak(answer.directAnswer);
+        if (state.settings.autoSpeak && !state.realtime && !needsAttention)
+          state.speak(answer.directAnswer);
       } catch (error) {
         if (controller.current !== token) return;
         if (token.signal.aborted) updateQuestion(q.id, { status: 'canceled' });
@@ -194,6 +198,13 @@ export function useInterview(
     },
     [analyze],
   );
+  useEffect(() => {
+    if (!realtime || busy || controller.current) return;
+    const next = questions
+      .filter((q) => q.origin === 'speech' && q.status === 'queued')
+      .sort((a, b) => a.detectedAt - b.detectedAt)[0];
+    if (next) void analyze(next);
+  }, [realtime, busy, questions, analyze]);
   const dismiss = (id: string) => {
     if (activeId === id) {
       cancel();
@@ -217,7 +228,13 @@ export function useInterview(
       setStale(false);
       return;
     }
-    void answerFingerprint(current.question, context, settings, current.tone)
+    void answerFingerprint(
+      current.question,
+      context,
+      settings,
+      current.tone,
+      JSON.parse(routingIdentity),
+    )
       .then((key) => {
         if (active) setStale(key !== current.requestFingerprint);
       })
@@ -227,9 +244,10 @@ export function useInterview(
     return () => {
       active = false;
     };
-  }, [context, settings, current?.requestFingerprint, current?.isStreaming]);
+  }, [context, settings, current?.requestFingerprint, current?.isStreaming, routingIdentity]);
   useEffect(() => () => controller.current?.abort(), []);
   return {
+    setRealtime,
     questions,
     answers,
     current,

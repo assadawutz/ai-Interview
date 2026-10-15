@@ -44,7 +44,7 @@ test('setup screen offers a Gemini credential modal without requiring server con
   await page.goto('/');
   await expect(page.locator('.setup-banner')).toBeVisible();
   await nav(page, 'สถานะระบบ');
-  await expect(page.locator('.setup-guide')).toBeVisible();
+  await expect(page.locator('.setup-guide').first()).toBeVisible();
   await expect(page.getByText('ต้องตั้งค่า GEMINI_API_KEY', { exact: true })).toBeVisible();
 });
 test('manual question completes with real stream metadata and survives refresh', async ({
@@ -388,4 +388,121 @@ test('Gemini modal remembers credentials only with explicit device opt-in', asyn
   );
   await page.getByRole('button', { name: 'ลบ key', exact: true }).click();
   expect(await page.evaluate(() => localStorage.getItem('interview-pulse:gemini-key'))).toBeNull();
+});
+
+test('local LLM settings save an Ollama model without a key and can reset routing', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'ตั้งค่า LLM และ fallback', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'LLM และการสลับสำรอง' });
+  await dialog.getByRole('combobox', { name: 'ผู้ให้บริการ', exact: true }).selectOption('ollama');
+  await dialog.getByLabel('ชื่อโมเดลจากผู้ให้บริการ', { exact: true }).fill('fixture:local');
+  await dialog.getByRole('combobox', { name: 'โมเดลหลัก', exact: true }).selectOption('external');
+  await dialog.getByRole('button', { name: 'บันทึกเส้นทาง', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('.model-list')).toContainText('external:ollama:fixture:local');
+  await page.reload();
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'ตั้งค่า LLM และ fallback', exact: true }).click();
+  await expect(dialog.getByLabel('ชื่อโมเดลจากผู้ให้บริการ', { exact: true })).toHaveValue(
+    'fixture:local',
+  );
+  await dialog.getByRole('button', { name: 'ล้างเส้นทางและกลับไปใช้ Gemini', exact: true }).click();
+  await expect(page.getByText('ต้องตั้งค่า GEMINI_API_KEY', { exact: true })).toBeVisible();
+});
+
+test('Realtime mode continuously displays speech and drains queued questions without mixing active answers', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const browser = window as unknown as {
+      SpeechRecognition: unknown;
+      testRealtime: { onresult: (event: unknown) => void; onend: () => void; starts: number };
+    };
+    browser.SpeechRecognition = class {
+      continuous = true;
+      interimResults = true;
+      lang = '';
+      starts = 0;
+      onresult = () => {};
+      onerror = () => {};
+      onend = () => {};
+      constructor() {
+        browser.testRealtime = this;
+      }
+      start() {
+        this.starts++;
+      }
+      abort() {}
+    };
+    navigator.mediaDevices.getUserMedia = async () => {
+      const context = new AudioContext(),
+        oscillator = context.createOscillator(),
+        destination = context.createMediaStreamDestination();
+      oscillator.connect(destination);
+      oscillator.start();
+      return destination.stream;
+    };
+  });
+  await setup(page);
+  let calls = 0;
+  let release!: () => void;
+  const first = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/analyze-question-stream', async (route) => {
+    calls++;
+    if (calls === 1) await first;
+    await route.fulfill({ contentType: 'text/event-stream', body: sse() });
+  });
+  await page.route('**/api/detect-question', (route) =>
+    route.fulfill({
+      json: {
+        isQuestion: true,
+        isDuplicate: false,
+        cleanQuestion: route.request().postDataJSON().transcript,
+        confidence: 95,
+        category: 'technical',
+      },
+    }),
+  );
+  const say = (text: string) =>
+    page.evaluate((text) => {
+      (
+        window as unknown as { testRealtime: { onresult: (event: unknown) => void } }
+      ).testRealtime.onresult({
+        resultIndex: 0,
+        results: [Object.assign([{ transcript: text }], { isFinal: true })],
+      });
+    }, text);
+  await page.getByRole('button', { name: 'Realtime Mode', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'หยุด Realtime', exact: true })).toBeVisible();
+  await say('What is database indexing?');
+  await expect.poll(() => calls).toBe(1);
+  await say('How does retry backoff work?');
+  await expect(page.locator('.question-item')).toHaveCount(2);
+  await expect(page.locator('.live-transcript')).toContainText('What is database indexing?');
+  await expect(page.locator('.live-transcript')).toContainText('How does retry backoff work?');
+  expect(calls).toBe(1);
+  release();
+  await expect.poll(() => calls).toBe(2);
+  await expect(page.locator('.status-tag')).toHaveText('เสร็จแล้ว');
+  await say('How does retry backoff work?');
+  await page.waitForTimeout(1500);
+  await expect(page.locator('.question-item')).toHaveCount(2);
+  expect(calls).toBe(2);
+  await page.evaluate(() =>
+    (window as unknown as { testRealtime: { onend: () => void } }).testRealtime.onend(),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { testRealtime: { starts: number } }).testRealtime.starts,
+      ),
+    )
+    .toBe(2);
+  await page.getByRole('button', { name: 'หยุด Realtime', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Realtime Mode', exact: true })).toBeVisible();
 });
