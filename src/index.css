@@ -1901,6 +1901,7 @@ small,
   color: #5a675e;
 }
 .modal {
+  margin: auto;
   border: 1px solid #e4ddeb;
   border-radius: 17px;
   padding: 0;
@@ -3320,6 +3321,7 @@ small,
 }
 .credential-option {
   display: flex;
+  flex-direction: row;
   gap: 10px;
   align-items: center;
 }
