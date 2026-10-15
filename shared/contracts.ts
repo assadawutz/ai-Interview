@@ -224,6 +224,7 @@ export type Health = {
   pricingConfigured: boolean;
   requestTimeoutMs?: number;
   localLLMSupported?: boolean;
+  agentPlan?: Record<string, string>;
 };
 
 export const detectionSchema = z.object({

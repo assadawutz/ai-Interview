@@ -308,6 +308,17 @@ export function SystemPanel({
           ))}
         </div>
       )}
+      {health?.agentPlan && (
+        <div className="diagnostics-results" role="status">
+          <strong>{t('Agents ที่ใช้งาน · ฟรีเท่านั้น', 'Active agents · free only')}</strong>
+          {Object.entries(health.agentPlan).map(([role, model]) => (
+            <div key={role}>
+              <strong>{role}</strong>
+              <span>{model}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <h3 className="subheading">{t('โมเดลที่ตั้งค่าไว้', 'Configured models')}</h3>
       <div className="model-list">
         {Object.entries(health?.models || {}).map(([key, value]) => (

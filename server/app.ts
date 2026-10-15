@@ -6,6 +6,8 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 const quotaCooldowns = new Map<string, number>();
 import { once } from 'node:events';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { buildAgentPlan, freeCatalog } from './agents.js';
+import { needsSpecialist, type AgentPlan } from '../shared/agents.js';
 import { normalizeGeminiKey } from '../shared/credentials.js';
 import {
   routingSchema,
@@ -159,6 +161,7 @@ export function createApp(
     accessToken?: string;
     providerFactory?: (key: string) => Provider;
     externalFactory?: (route: LLMRouting, key: string) => Provider;
+    freeCatalog?: typeof freeCatalog;
   } = {},
 ) {
   // Credentials and clients belong to one request, never a shared process-wide user.
@@ -167,7 +170,8 @@ export function createApp(
     provider?: Provider;
     route: LLMRouting;
     externalKey: string;
-    external?: Provider;
+    externals?: Map<string, Provider>;
+    plan?: AgentPlan;
     nativeLimited?: boolean;
   }>();
   const app = express();
@@ -196,12 +200,28 @@ export function createApp(
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  app.use('/api', (req, res, next) => {
+  app.use('/api', async (req, res, next) => {
     try {
       const key = normalizeGeminiKey(req.get('X-Gemini-API-Key') || '');
       const route = routingSchema.parse(JSON.parse(req.get('X-LLM-Config') || '{}'));
       const externalKey = normalizeGeminiKey(req.get('X-LLM-API-Key') || '');
-      requestProvider.run({ key, route, externalKey }, next);
+      let plan: AgentPlan | undefined;
+      if (route.freeOnly || route.agentMode) {
+        if (route.provider !== 'openrouter')
+          return res.status(400).json({
+            error:
+              'Verified free agent routing requires OpenRouter. Disable this preset to use another provider.',
+          });
+        try {
+          plan = buildAgentPlan(await (options.freeCatalog || freeCatalog)());
+        } catch {
+          return res.status(503).json({
+            error:
+              'Cannot verify free model prices. Requests are paused; paid models will not be selected.',
+          });
+        }
+      }
+      requestProvider.run({ key, route, externalKey, plan }, next);
     } catch {
       return res.status(400).json({
         error:
@@ -220,6 +240,7 @@ export function createApp(
         !!options.provider || !!requestProvider.getStore()?.key || hasApiKey() || hasExternal(),
       requiresAccessToken: !!(options.accessToken ?? config.accessToken),
       models: getModels(),
+      agentPlan: requestProvider.getStore()?.plan,
       pricingConfigured: Object.keys(config.pricing).length > 0,
       localLLMSupported: ollamaDeploymentSupported(),
     }),
@@ -312,6 +333,7 @@ export function createApp(
           deep: route.geminiModel,
         }
       : { ...config.models };
+    const result = { ...models, review: models.fast };
     if (hasExternal()) {
       models.fallback = externalModel(route);
       if (
@@ -322,22 +344,56 @@ export function createApp(
       )
         models.fast = models.balanced = models.deep = externalModel(route);
     }
-    return models;
+    if (state?.plan && hasExternal()) {
+      const encode = (id: string) => `external:openrouter:${id}`;
+      result.fast = encode(state.plan.detector);
+      result.balanced = encode(state.plan.coach);
+      result.deep = encode(state.plan.specialist);
+      result.review = encode(state.plan.reviewer);
+      result.fallback = encode(state.plan.fallback);
+      return result;
+    }
+    return { ...models, review: models.fast };
   }
   function getProvider(): Provider {
-    if (!hasExternal()) return getNativeProvider();
+    if (!hasExternal()) {
+      if (requestProvider.getStore()?.route.freeOnly)
+        throw new ApiError(
+          503,
+          'Add an OpenRouter key for the free agent preset. Paid or Gemini routes are blocked.',
+        );
+      return getNativeProvider();
+    }
     const state = requestProvider.getStore()!;
     const select = (model: string) => {
-      if (!model.startsWith('external:')) return getNativeProvider();
+      if (!model.startsWith('external:')) {
+        if (state.route.freeOnly)
+          throw new ApiError(
+            400,
+            'Free-only agents support text. Use browser speech; Google audio, documents and search are disabled.',
+          );
+        return getNativeProvider();
+      }
       if (state.route.provider === 'ollama' && !ollamaDeploymentSupported())
         throw new ApiError(
           409,
           'Vercel cannot reach Ollama on your computer. Run this app locally with Ollama, or configure a trusted OLLAMA_BASE_URL on the server.',
         );
-      return (state.external ??= (options.externalFactory || externalProvider)(
-        state.route,
-        state.externalKey,
-      ));
+      const prefix = `external:${state.route.provider}:`;
+      if (!model.startsWith(prefix)) throw new ApiError(400, 'Invalid provider route.');
+      const id = model.slice(prefix.length);
+      if (state.plan && !Object.values(state.plan).includes(id))
+        throw new ApiError(403, 'Model is outside the verified free agent plan.');
+      state.externals ??= new Map();
+      if (!state.externals.has(model))
+        state.externals.set(
+          model,
+          (options.externalFactory || externalProvider)(
+            { ...state.route, model: id },
+            state.externalKey,
+          ),
+        );
+      return state.externals.get(model)!;
     };
     return {
       generate: (params) => select(params.model).generate(params),
@@ -351,9 +407,19 @@ export function createApp(
   }
   // Bounded routing controller: a single failover, with no restart after partial output.
   function fallbackModel(model: string, error: unknown, params: GenerateContentParameters) {
-    if (model.startsWith('external:') || ![404, 429, 500, 502, 503, 504].includes(statusOf(error)))
-      return undefined;
+    if (![404, 429, 500, 502, 503, 504].includes(statusOf(error))) return undefined;
     const state = requestProvider.getStore();
+    if (model.startsWith('external:')) {
+      if (!state?.plan || !state.route.fallback || !textOnly(params)) return undefined;
+      if (
+        statusOf(error) === 429 &&
+        error instanceof Error &&
+        /daily|per[-_ ]?day|credits|billing/i.test(error.message)
+      )
+        return undefined;
+      const backup = `external:openrouter:${state.plan.fallback}`;
+      return backup !== model ? backup : undefined;
+    }
     if (hasExternal() && state?.route.fallback && textOnly(params)) {
       if (statusOf(error) === 429) {
         state.nativeLimited = true;
@@ -474,7 +540,9 @@ export function createApp(
       }, 15000);
       const started = Date.now();
       let receivedText = false;
-      let selected = getModels()[data.speed];
+      const specialized =
+        requestProvider.getStore()?.plan && needsSpecialist(data.taskType, data.question);
+      let selected = specialized ? getModels().deep : getModels()[data.speed];
       try {
         const run = async (model: string) => {
           await send({ type: 'meta', model });
@@ -543,7 +611,7 @@ export function createApp(
           if (data.verifyAnswer) {
             await send({ type: 'phase', phase: 'review' });
             try {
-              reviewModel = getModels().fast;
+              reviewModel = getModels().review;
               const reviewSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
               const response = await generate(
                 {
@@ -659,7 +727,16 @@ export function createApp(
         409,
         'Use Ollama Cloud on Vercel; local Ollama requires a reachable server.',
       );
-    const models = await listExternalModels(state.route, state.externalKey, signal);
+    const models = state.route.freeOnly
+      ? (await (options.freeCatalog || freeCatalog)())
+          .filter(
+            (m) =>
+              (m.id.endsWith(':free') || m.id === 'openrouter/free') &&
+              Number(m.pricing?.prompt ?? -1) === 0 &&
+              Number(m.pricing?.completion ?? -1) === 0,
+          )
+          .map((m) => m.id)
+      : await listExternalModels(state.route, state.externalKey, signal);
     res.json({ provider: state.route.provider, models, credentialVerified: false });
   });
   post('/api/diagnostics', z.object({}), async (_data, res, signal) => {

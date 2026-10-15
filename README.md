@@ -253,3 +253,34 @@ A new empty cloud deployment recommends Ollama Cloud in the connection modal.
 Existing configured provider choices are preserved. Catalog requests are
 cancelled when the modal closes or the provider changes; keys never appear in
 URLs, catalog responses, exports, or application logs.
+
+## Recommended free agent defaults
+
+New empty connections recommend **Free models + automatic agents** using an
+OpenRouter key. Existing saved provider credentials are preserved; selecting the
+preset clears a key belonging to a different provider. The coordinator chooses
+these task roles and validates the live public catalog (cached for five minutes):
+
+| Role       | Recommended model                        | Purpose                                             |
+| ---------- | ---------------------------------------- | --------------------------------------------------- |
+| Detector   | `liquid/lfm-2.5-2.6b:free`               | Short structured question detection                 |
+| Coach      | `google/gemma-4-31b-it:free`             | General and behavioral coaching                     |
+| Specialist | `nvidia/nemotron-3-super-120b-a12b:free` | Technical, coding, system design and case questions |
+| Reviewer   | `nvidia/nemotron-3.5-super-vl:free`      | Independent evidence review                         |
+| Fallback   | `openrouter/free`                        | Free-only provider routing before any answer text   |
+
+These are capability-based recommendations, not measured quality rankings.
+Explicit task type takes priority; simple visible question keywords select the
+specialist in Auto mode. No extra LLM call is made just to coordinate routing.
+The bounded agent workflow detects → selects → drafts → reviews; it does not run
+user code, perform autonomous external actions, or spawn unbounded agent loops.
+
+Only text-capable `:free` IDs (or `openrouter/free`) with explicitly zero prompt
+and completion prices are eligible. Missing or unavailable price metadata fails
+closed. Retired defaults are replaced only by verified free structured-text
+models. The active resolved roles appear in System. Free-only mode blocks native
+Gemini media calls; use browser speech in Realtime. No paid route is selected
+automatically. An OpenRouter account key is required, and free-tier limits still
+apply. Account-wide daily exhaustion stops rather than retrying the same free
+account or switching to a paid service. A per-model transient failure may use
+one free fallback before text starts; partial answers are never restarted.

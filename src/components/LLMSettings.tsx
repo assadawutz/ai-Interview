@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Network } from 'lucide-react';
 import { Modal } from './Modal';
 import { getLLMConnection, saveLLMConnection, clearLLMConnection, request } from '../lib/api';
-import type { LLMRouting } from '../../shared/routing';
+import { freeAgentRouting, type LLMRouting } from '../../shared/routing';
+import { agentDefaults } from '../../shared/agents';
 import { normalizeGeminiKey } from '../../shared/credentials';
 export function LLMSettings({
   language,
@@ -39,13 +40,9 @@ export function LLMSettings({
           className="button"
           onClick={() => {
             const saved = getLLMConnection();
-            setRoute(
-              localSupported === false && !saved.route.model
-                ? { ...saved.route, provider: 'ollama-cloud', primary: 'external', fallback: true }
-                : saved.route,
-            );
+            setRoute(saved.route.model ? saved.route : freeAgentRouting);
             setModels([]);
-            setKey(saved.key);
+            setKey(saved.route.model ? saved.key : '');
             setError('');
             setOpen(true);
           }}
@@ -82,6 +79,63 @@ export function LLMSettings({
                 }
               }}
             >
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => {
+                  lookup.current?.abort();
+                  if (route.provider !== 'openrouter') setKey('');
+                  setRoute(freeAgentRouting);
+                  setModels([]);
+                  setError('');
+                }}
+              >
+                {t(
+                  'ใช้ฟรี + Agents อัตโนมัติ (แนะนำ)',
+                  'Free models + automatic agents (recommended)',
+                )}
+              </button>
+              {route.agentMode && (
+                <div className="privacy-box">
+                  <strong>
+                    {t(
+                      'Agent ประสานงาน: จับคำถาม → เลือกผู้เชี่ยวชาญ → ร่าง → ตรวจหลักฐาน',
+                      'Coordinator: detect → specialize → draft → evidence review',
+                    )}
+                  </strong>
+                  {Object.entries(agentDefaults).map(([role, model]) => (
+                    <p key={role}>
+                      <strong>{role}</strong>: {model}
+                    </p>
+                  ))}
+                  <p>
+                    {t(
+                      'ตรวจราคาศูนย์จากแคตตาล็อกก่อนใช้ ไม่เลือกโมเดลเสียเงิน ถ้าโควตารายวันของทั้งบัญชีหมดจะหยุดและแจ้ง ไม่มีการรับประกันคำขอฟรีไม่จำกัด',
+                      'Checks zero text-token prices before use. No paid fallback. Account-wide daily quota exhaustion stops the request; free usage is not unlimited.',
+                    )}
+                  </p>
+                  <a
+                    href="https://openrouter.ai/settings/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    OpenRouter API key
+                  </a>
+                </div>
+              )}
+              <label className="credential-option">
+                <input
+                  type="checkbox"
+                  checked={route.agentMode}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      if (route.provider !== 'openrouter') setKey('');
+                      setRoute(freeAgentRouting);
+                    } else setRoute({ ...route, agentMode: false, freeOnly: false });
+                  }}
+                />
+                {t('Agent อัตโนมัติ + ใช้เฉพาะโมเดลฟรี', 'Automatic agents + free-only models')}
+              </label>
               <label>
                 {t('ผู้ให้บริการ', 'Provider')}
                 <select
@@ -93,6 +147,8 @@ export function LLMSettings({
                     setRoute({
                       ...route,
                       provider: e.target.value as LLMRouting['provider'],
+                      freeOnly: false,
+                      agentMode: false,
                       model: '',
                       primary: e.target.value === 'ollama-cloud' ? 'external' : route.primary,
                     });
@@ -109,6 +165,7 @@ export function LLMSettings({
                 {t('ชื่อโมเดลจากผู้ให้บริการ', 'Provider model ID')}
                 <input
                   value={route.model}
+                  disabled={route.agentMode}
                   onChange={(e) => setRoute({ ...route, model: e.target.value })}
                   autoComplete="off"
                   spellCheck={false}
@@ -191,6 +248,7 @@ export function LLMSettings({
                 <label>
                   {t('เลือกโมเดลที่มีให้บริการ', 'Choose an available model')}
                   <select
+                    disabled={route.agentMode}
                     value={models.includes(route.model) ? route.model : ''}
                     onChange={(e) => setRoute({ ...route, model: e.target.value })}
                   >

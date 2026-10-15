@@ -23,8 +23,8 @@ The fixture server is guarded by `INTERVIEW_TEST_MODE=1`, is not imported by `se
 ## Verified local run for v2.0
 
 - Formatting, strict TypeScript checks and production build passed.
-- **45 regression/API/quality/adapter tests passed.**
-- **26 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
+- **52 regression/API/quality/adapter/agent tests passed.**
+- **27 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
 - `npm audit` reported **0 known vulnerabilities** in the installed dependency tree at this check.
 - The live evaluator stopped before generation because the server key is not configured. No live Gemini quality score is claimed.
 
@@ -77,3 +77,14 @@ A browser case loads a cloud catalog, selects a model, saves settings and sends
 that provider's credential with coaching requests. Catalog metadata is explicitly
 marked as not verifying credentials or quota. Actual paid/authenticated cloud
 generation remains unverified without a user-provided Ollama credential.
+
+## Free-role agents
+
+Tests verify recommended role assignments, rejection of priced/non-text/missing-
+price models, safe retirement of defaults, specialist selection, bounded free
+failover and refusal to retry account-wide daily quota or call native media in
+free-only mode. Agent API tests inject a catalog and deterministic providers;
+they do not consume live account quota. The browser checks the fresh recommended
+preset, key isolation, saved free-only policy and active role display. Live free
+model metadata was checked, but no quality ranking, account authorization, or
+unlimited free availability is claimed.

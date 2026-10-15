@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { agentDefaults } from '../../shared/agents';
 const health = {
   status: 'ready',
   hasApiKey: true,
@@ -546,4 +547,50 @@ test('Ollama Cloud settings load model IDs, save a cloud route and send its key 
   await expect(page.locator('.status-tag')).toHaveText('เสร็จแล้ว');
   expect(answerCredential).toBe('test-ollama-cloud-key');
   expect(provider).toBe('ollama-cloud');
+});
+
+test('free agent preset is the fresh default and saves an explicit free-only fallback policy', async ({
+  page,
+}) => {
+  await page.route('**/api/health', (route) => {
+    const config = JSON.parse(route.request().headers()['x-llm-config'] || '{}');
+    const active = !!config.agentMode && !!route.request().headers()['x-llm-api-key'];
+    return route.fulfill({
+      json: {
+        ...health,
+        hasApiKey: active,
+        localLLMSupported: false,
+        agentPlan: active ? agentDefaults : undefined,
+      },
+    });
+  });
+  let policy: Record<string, unknown> = {};
+  await page.route('**/api/analyze-question-stream', (route) => {
+    policy = JSON.parse(route.request().headers()['x-llm-config']);
+    return route.fulfill({ contentType: 'text/event-stream', body: sse() });
+  });
+  await page.goto('/');
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'ตั้งค่า LLM และ fallback', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('combobox', { name: 'ผู้ให้บริการ', exact: true })).toHaveValue(
+    'openrouter',
+  );
+  await expect(
+    dialog.getByLabel('Agent อัตโนมัติ + ใช้เฉพาะโมเดลฟรี', { exact: true }),
+  ).toBeChecked();
+  await expect(dialog.getByLabel('ชื่อโมเดลจากผู้ให้บริการ', { exact: true })).toHaveValue(
+    agentDefaults.coach,
+  );
+  await dialog
+    .getByLabel('API key ของผู้ให้บริการนี้', { exact: true })
+    .fill('test-free-provider-key');
+  await dialog.getByRole('button', { name: 'บันทึกเส้นทาง', exact: true }).click();
+  await expect(page.getByText('Agents ที่ใช้งาน · ฟรีเท่านั้น', { exact: true })).toBeVisible();
+  await nav(page, 'พื้นที่เตรียมตัว');
+  await ask(page);
+  await expect(page.locator('.status-tag')).toHaveText('เสร็จแล้ว');
+  expect(policy.freeOnly).toBe(true);
+  expect(policy.agentMode).toBe(true);
+  expect(policy.fallback).toBe(true);
 });
