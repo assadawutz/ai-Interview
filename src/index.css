@@ -3305,3 +3305,27 @@ small,
     overflow-wrap: anywhere;
   }
 }
+
+.credential-form {
+  display: grid;
+  gap: 14px;
+}
+.credential-form p {
+  margin: 0;
+  line-height: 1.6;
+}
+.credential-form > input {
+  width: 100%;
+  min-width: 0;
+}
+.credential-option {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.credential-option input {
+  width: auto;
+}
+.credential-form [role='alert'] {
+  color: var(--danger, #c2413b);
+}

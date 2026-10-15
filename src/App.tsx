@@ -37,7 +37,13 @@ import {
   type Settings,
   type SavedPreparation,
 } from '../shared/contracts';
-import { request, downloadJson, setAccessToken, setRequestTimeoutMs } from './lib/api';
+import {
+  request,
+  downloadJson,
+  setAccessToken,
+  setRequestTimeoutMs,
+  clearGeminiKey,
+} from './lib/api';
 import {
   clearAll,
   DRAFT_KEY,
@@ -338,6 +344,8 @@ export default function App() {
       try {
         clearAll(localStorage);
         setAccessToken('');
+        clearGeminiKey();
+        void refreshHealth();
         setSessions([]);
         setContext(defaultContext);
         setSettings({ ...defaultSettings, autosave: false });
@@ -560,8 +568,8 @@ export default function App() {
                     <Sparkles size={18} />
                     <span>
                       {t(
-                        'เพิ่ม Gemini API key บนเซิร์ฟเวอร์เพื่อเริ่มใช้งาน AI',
-                        'Add a Gemini API key on the server to enable AI coaching.',
+                        'เพิ่ม Gemini API key ในหน้าตั้งค่าเพื่อเริ่มใช้งาน AI',
+                        'Add your Gemini API key in Settings to enable AI coaching.',
                       )}
                     </span>
                   </div>

@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   GoogleGenAI,
@@ -124,7 +125,15 @@ function getSources(response: GenerateContentResponse) {
   });
 }
 
-export function createApp(options: { provider?: Provider; accessToken?: string } = {}) {
+export function createApp(
+  options: {
+    provider?: Provider;
+    accessToken?: string;
+    providerFactory?: (key: string) => Provider;
+  } = {},
+) {
+  // Credentials and clients belong to one request, never a shared process-wide user.
+  const requestProvider = new AsyncLocalStorage<{ key: string; provider?: Provider }>();
   const app = express();
   app.disable('x-powered-by');
   // Vite requires inline styles/scripts in development. Production is self-hosted.
@@ -151,11 +160,20 @@ export function createApp(options: { provider?: Provider; accessToken?: string }
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  app.use('/api', (req, res, next) => {
+    const key = req.get('X-Gemini-API-Key')?.trim() || '';
+    if (key && !/^[A-Za-z0-9_-]{20,200}$/.test(key))
+      return res.status(400).json({ error: 'Invalid Gemini API key format.' });
+    requestProvider.run({ key }, next);
+  });
   app.get('/api/health', (_req, res) =>
     res.json({
       requestTimeoutMs: config.timeoutMs + 5000,
-      status: options.provider || hasApiKey() ? 'ready' : 'setup_required',
-      hasApiKey: !!options.provider || hasApiKey(),
+      status:
+        options.provider || requestProvider.getStore()?.key || hasApiKey()
+          ? 'ready'
+          : 'setup_required',
+      hasApiKey: !!options.provider || !!requestProvider.getStore()?.key || hasApiKey(),
       requiresAccessToken: !!(options.accessToken ?? config.accessToken),
       models: config.models,
       pricingConfigured: Object.keys(config.pricing).length > 0,
@@ -195,19 +213,26 @@ export function createApp(options: { provider?: Provider; accessToken?: string }
     }),
   );
   app.use(express.json({ limit: '4mb' }));
-  let provider = options.provider;
+  let serverProvider: Provider | undefined;
+  function makeProvider(key: string): Provider {
+    if (options.providerFactory) return options.providerFactory(key);
+    const client = new GoogleGenAI({ apiKey: key });
+    return {
+      generate: (p) => client.models.generateContent(p),
+      stream: (p) => client.models.generateContentStream(p),
+      inspect: (model, signal) => client.models.get({ model, config: { abortSignal: signal } }),
+    };
+  }
   function getProvider() {
-    if (!provider) {
-      if (!hasApiKey())
-        throw new ApiError(503, 'Set GEMINI_API_KEY on the server to enable AI features.');
-      const client = new GoogleGenAI({ apiKey: config.apiKey });
-      provider = {
-        generate: (p) => client.models.generateContent(p),
-        stream: (p) => client.models.generateContentStream(p),
-        inspect: (model, signal) => client.models.get({ model, config: { abortSignal: signal } }),
-      };
-    }
-    return provider;
+    if (options.provider) return options.provider;
+    const current = requestProvider.getStore();
+    if (current?.key) return (current.provider ??= makeProvider(current.key));
+    if (!hasApiKey())
+      throw new ApiError(
+        503,
+        'Add your Gemini API key in Settings, or set GEMINI_API_KEY on the server.',
+      );
+    return (serverProvider ??= makeProvider(config.apiKey));
   }
   function requestSignal(res: Response) {
     const controller = new AbortController();

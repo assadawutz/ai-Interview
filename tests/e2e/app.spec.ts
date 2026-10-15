@@ -38,7 +38,7 @@ async function nav(page: Page, text: string) {
   await page.locator('.sidebar').getByRole('button', { name: text, exact: true }).click();
 }
 
-test('setup screen loads without credentials and explains server-only key configuration', async ({
+test('setup screen offers a Gemini credential modal without requiring server configuration', async ({
   page,
 }) => {
   await page.goto('/');
@@ -336,4 +336,56 @@ test('unfinished practice draft is recovered after reload', async ({ page }) => 
   await expect(page.getByLabel('คำตอบของคุณ', { exact: true })).toHaveValue(
     'I built the migration plan.',
   );
+});
+
+test('Gemini modal saves a tab key, survives reload, and removes it', async ({ page }) => {
+  const key = 'test-browser-credential-123456789';
+  await page.goto('/');
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'เพิ่ม Gemini API key', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'ตั้งค่า Gemini API key' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Gemini API key', { exact: true }).fill(key);
+  await expect(dialog.getByLabel('Gemini API key', { exact: true })).toHaveAttribute(
+    'type',
+    'password',
+  );
+  await dialog.getByRole('button', { name: 'บันทึกและใช้งาน', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'เปลี่ยน Gemini API key' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('interview-pulse:gemini-key'))).toBeNull();
+  await page.reload();
+  await nav(page, 'สถานะระบบ');
+  await expect(page.getByRole('button', { name: 'เปลี่ยน Gemini API key' })).toBeVisible();
+  const health = await page.evaluate(async () => {
+    const response = await fetch('/api/health', {
+      headers: { 'X-Gemini-API-Key': sessionStorage.getItem('interview-pulse:gemini-key') || '' },
+    });
+    return response.json();
+  });
+  expect(health.hasApiKey).toBe(true);
+  await page.getByRole('button', { name: 'ลบ key', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'เพิ่ม Gemini API key', exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => sessionStorage.getItem('interview-pulse:gemini-key')),
+  ).toBeNull();
+});
+
+test('Gemini modal remembers credentials only with explicit device opt-in', async ({ page }) => {
+  await page.goto('/');
+  await nav(page, 'สถานะระบบ');
+  await page.getByRole('button', { name: 'เพิ่ม Gemini API key', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .getByLabel('Gemini API key', { exact: true })
+    .fill('test-remembered-credential-123456');
+  await dialog.getByLabel('จำบนอุปกรณ์นี้', { exact: true }).check();
+  await dialog.getByRole('button', { name: 'บันทึกและใช้งาน' }).click();
+  expect(await page.evaluate(() => !!localStorage.getItem('interview-pulse:gemini-key'))).toBe(
+    true,
+  );
+  await page.getByRole('button', { name: 'ลบ key', exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem('interview-pulse:gemini-key'))).toBeNull();
 });

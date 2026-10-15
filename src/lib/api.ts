@@ -1,6 +1,37 @@
 import { sourceSchema, usageSchema, answerReviewSchema } from '../../shared/contracts';
 import { z } from 'zod';
 let accessToken = '';
+const GEMINI_KEY_STORAGE = 'interview-pulse:gemini-key';
+export function getGeminiKey() {
+  try {
+    return (
+      sessionStorage.getItem(GEMINI_KEY_STORAGE) || localStorage.getItem(GEMINI_KEY_STORAGE) || ''
+    );
+  } catch {
+    return '';
+  }
+}
+export function remembersGeminiKey() {
+  try {
+    return !!localStorage.getItem(GEMINI_KEY_STORAGE);
+  } catch {
+    return false;
+  }
+}
+export function saveGeminiKey(value: string, remember = false) {
+  const key = value.trim();
+  if (key && !/^[A-Za-z0-9_-]{20,200}$/.test(key))
+    throw new Error('Invalid Gemini API key format. Paste the complete key.');
+  // Write the destination first so a storage failure cannot erase the existing key.
+  const destination = remember ? localStorage : sessionStorage;
+  if (key) destination.setItem(GEMINI_KEY_STORAGE, key);
+  else destination.removeItem(GEMINI_KEY_STORAGE);
+  (remember ? sessionStorage : localStorage).removeItem(GEMINI_KEY_STORAGE);
+}
+export function clearGeminiKey() {
+  sessionStorage.removeItem(GEMINI_KEY_STORAGE);
+  localStorage.removeItem(GEMINI_KEY_STORAGE);
+}
 let requestTimeoutMs = 75000;
 export function setRequestTimeoutMs(value?: number) {
   if (value !== undefined && Number.isFinite(value) && value >= 5000 && value <= 300000)
@@ -14,6 +45,7 @@ export function getAccessToken() {
 }
 export const headers = () => ({
   'Content-Type': 'application/json',
+  ...(getGeminiKey() ? { 'X-Gemini-API-Key': getGeminiKey() } : {}),
   ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
 });
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {

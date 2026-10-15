@@ -23,8 +23,8 @@ The fixture server is guarded by `INTERVIEW_TEST_MODE=1`, is not imported by `se
 ## Verified local run for v2.0
 
 - Formatting, strict TypeScript checks and production build passed.
-- **31 regression/API/quality tests passed.**
-- **21 browser tests passed against the production build**, including 9 full API/provider-boundary integration cases.
+- **32 regression/API/quality tests passed.**
+- **23 browser tests passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
 - `npm audit` reported **0 known vulnerabilities** in the installed dependency tree at this check.
 - The live evaluator stopped before generation because the server key is not configured. No live Gemini quality score is claimed.
 
@@ -44,3 +44,12 @@ After setting the key, use System's model metadata check and `npm run eval:live`
 - **Unavailable / skipped:** the draft has not received this consistency pass.
 
 Evidence matching proves that a phrase occurs in user inputs, not that the original claim is true. A useful interview coach improves understanding, relevance and preparation; it cannot promise an employer's hiring decision.
+
+## Personal credential settings
+
+The settings modal is covered for masked entry, save, reload, deletion, and opt-in
+persistent browser storage. A concurrent API regression proves that separate
+requests use separate provider credentials and that a later credential-free
+request cannot inherit another user's key. Health returns credential presence
+only. No real Gemini credential was used for these tests; saving validates key
+format, while provider metadata checks and generation still need a real key.

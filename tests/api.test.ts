@@ -43,8 +43,13 @@ const provider: Provider = {
     })();
   },
 };
-async function withServer(run: (base: string) => Promise<void>, fake?: Provider, accessToken = '') {
-  const server = createApp({ provider: fake, accessToken }).listen(0, '127.0.0.1');
+async function withServer(
+  run: (base: string) => Promise<void>,
+  fake?: Provider,
+  accessToken = '',
+  providerFactory?: (key: string) => Provider,
+) {
+  const server = createApp({ provider: fake, accessToken, providerFactory }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
   assert(address && typeof address !== 'string');
@@ -361,3 +366,50 @@ test('model diagnostics reports metadata without making generation requests', ()
       },
     },
   ));
+
+test('browser credentials are request-scoped across concurrent requests and never returned by health', () => {
+  const first = 'test-user-one-credential-12345';
+  const second = 'test-user-two-credential-67890';
+  return withServer(
+    async (base) => {
+      const results = await Promise.all(
+        [first, second].map(async (key) => {
+          const result = await post(
+            base,
+            'copilot-chat',
+            { messages: [{ role: 'user', text: 'Help me answer' }] },
+            { 'X-Gemini-API-Key': key },
+          );
+          return { status: result.status, body: await result.text(), key };
+        }),
+      );
+      for (const result of results) {
+        assert.equal(result.status, 200);
+        assert.match(result.body, new RegExp(result.key === first ? 'FIRST' : 'SECOND'));
+      }
+      const health = await fetch(base + '/api/health', { headers: { 'X-Gemini-API-Key': first } });
+      const body = await health.text();
+      assert.equal(JSON.parse(body).hasApiKey, true);
+      assert.ok(!body.includes(first));
+      assert.equal((await (await fetch(base + '/api/health')).json()).hasApiKey, false);
+      assert.equal(
+        (await post(base, 'copilot-chat', { messages: [{ role: 'user', text: 'Help me answer' }] }))
+          .status,
+        503,
+      );
+      assert.equal(
+        (await fetch(base + '/api/health', { headers: { 'X-Gemini-API-Key': 'bad' } })).status,
+        400,
+      );
+    },
+    undefined,
+    '',
+    (key) => ({
+      ...provider,
+      async generate() {
+        await new Promise((resolve) => setTimeout(resolve, key === first ? 25 : 5));
+        return response(key === first ? 'FIRST' : 'SECOND');
+      },
+    }),
+  );
+});

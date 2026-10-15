@@ -9,7 +9,7 @@ Requires **Node.js 22.12+** (Node 24 recommended) and npm. npm and `package-lock
 ```sh
 npm ci
 cp .env.example .env
-# Set GEMINI_API_KEY in .env. Never put the key in browser code.
+# Optionally set GEMINI_API_KEY in .env, or add your own key in System settings.
 npm run dev
 ```
 
@@ -43,7 +43,7 @@ Open **http://localhost:3000**. Without a Gemini key the UI still starts, shows 
 - **Role-fit plan:** map JD requirements to profile evidence, distinguish missing evidence from missing ability, and generate an actionable 1–7 day practice plan with success checks and employer questions. Requirements without a matching JD quote are labeled AI inference. Plan questions can be sent into the workspace for coaching.
 - **Practice improvements:** choose question type and difficulty; feedback includes rubric scores, strengths, improvements and a suggested revision, rather than a hiring probability.
 - **Cache invalidation:** profile, language, task type, speed, review mode and output settings are fingerprinted. Older-context answers are marked stale and regenerated when selected; unrelated prior AI answers are never treated as candidate evidence.
-- **Session schema v3:** v2 sessions are accepted and upgraded with defaults, while existing storage key names stay compatible. Corrupt records are preserved with autosave paused; Sessions offers a raw recovery backup. Full local-data clearing also removes the in-memory app token.
+- **Session schema v3:** v2 sessions are accepted and upgraded with defaults, while existing storage key names stay compatible. Corrupt records are preserved with autosave paused; Sessions offers a raw recovery backup. Full local-data clearing also removes the in-memory app token and browser Gemini credential.
 - **Model diagnostics:** System can request metadata for configured models from the provider. This checks metadata access only, not generation rights or remaining quota.
 
 ## Live quality evaluation
@@ -145,8 +145,26 @@ Browser tests include both isolated UI fixtures and production frontend → real
 
 The Vite frontend and the Express API deploy together using `vercel.json` and
 `api/index.ts`. Use Node.js 24. Set `APP_URL` to the production origin, and set
-`GEMINI_API_KEY` and `APP_ACCESS_TOKEN` as server-only environment variables in
-Vercel before enabling AI. Redeploy after changing environment variables.
+`APP_ACCESS_TOKEN` as a server-only environment variable in Vercel for shared access.
+For AI, either set server-only `GEMINI_API_KEY` or add a personal key in System settings. Redeploy after changing environment variables.
 Uploads are capped at 3 MB before base64 encoding to fit the platform's 4.5 MB
 request limit. Rate limiting is per warm function instance, not globally shared.
 Without an AI key, the UI remains accessible and health reports `setup_required`.
+
+### Personal Gemini key in Settings
+
+Open **System → Add Gemini API key**, paste your Google AI Studio key, and choose
+**Save and use key**. This applies immediately without restarting or redeploying.
+The key is stored in `sessionStorage` by default, surviving reloads in that tab.
+Opting into **Remember on this device** uses `localStorage` until **Remove key**
+or **Clear all data** is selected. Browser storage is readable by scripts on the
+same origin; only remember credentials on a trusted device.
+
+The browser sends the credential in `X-Gemini-API-Key` to this app's same-origin
+API over HTTPS. The server uses it only for that request to Google and never
+persists it, writes it to environment variables, or returns it to the browser.
+Concurrent users cannot replace each other's provider credentials. A personal
+key takes precedence over the optional server key; removing it restores the
+server-key behavior. Keys are excluded from session exports and recovery backups.
+**Save** checks format, not validity: use **Check provider model metadata** to
+check account/model access; generation and quota still require a real request.

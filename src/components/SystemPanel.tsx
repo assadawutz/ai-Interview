@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  RefreshCw,
-  KeyRound,
-  Settings2,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-} from 'lucide-react';
+import { RefreshCw, KeyRound, Settings2, CheckCircle2, ExternalLink } from 'lucide-react';
 import type { Health } from '../../shared/contracts';
 import { diagnosticsSchema } from '../../shared/contracts';
-import { request, getAccessToken, setAccessToken } from '../lib/api';
+import {
+  request,
+  getAccessToken,
+  setAccessToken,
+  getGeminiKey,
+  saveGeminiKey,
+  clearGeminiKey,
+  remembersGeminiKey,
+} from '../lib/api';
+import { Modal } from './Modal';
 export function SystemPanel({
   health,
   language,
@@ -21,6 +23,11 @@ export function SystemPanel({
   onRefresh: () => void;
   notify: (message: string) => void;
 }) {
+  const [keyModal, setKeyModal] = useState(false);
+  const [key, setKey] = useState('');
+  const [remember, setRemember] = useState(remembersGeminiKey);
+  const [visible, setVisible] = useState(false);
+  const [keyError, setKeyError] = useState('');
   const [token, setToken] = useState(getAccessToken());
   const [diagnostics, setDiagnostics] = useState<ReturnType<typeof diagnosticsSchema.parse> | null>(
     null,
@@ -76,36 +83,147 @@ export function SystemPanel({
           </span>
         </div>
       </div>
-      {!health?.hasApiKey && (
-        <div className="setup-guide">
-          <AlertCircle size={20} />
-          <div>
-            <h3>{t('เปิดใช้งาน AI', 'Enable AI features')}</h3>
-            <ol>
-              <li>
-                {t(
-                  'คัดลอก .env.example เป็น .env บนเซิร์ฟเวอร์',
-                  'Copy .env.example to .env on the server.',
-                )}
-              </li>
-              <li>
-                {t('ตั้งค่า GEMINI_API_KEY ด้วย key ของคุณ', 'Set GEMINI_API_KEY to your own key.')}
-              </li>
-              <li>
-                {t('รีสตาร์ตเซิร์ฟเวอร์ด้วย npm run dev', 'Restart the server with npm run dev.')}
-              </li>
-            </ol>
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-              Google AI Studio <ExternalLink size={12} />
-            </a>
-            <p className="micro muted">
+      <div className="setup-guide">
+        <KeyRound size={20} />
+        <div>
+          <h3>{t('เชื่อมต่อ Gemini ของคุณ', 'Connect your Gemini account')}</h3>
+          <p>
+            {t(
+              'ใส่ API key แล้วเริ่มใช้งานได้โดยไม่ต้อง redeploy',
+              'Add your API key to start without redeploying.',
+            )}
+          </p>
+          <button
+            className="button primary"
+            onClick={() => {
+              setKey('');
+              setKeyError('');
+              setVisible(false);
+              setRemember(remembersGeminiKey());
+              setKeyModal(true);
+            }}
+          >
+            <KeyRound size={15} />
+            {getGeminiKey()
+              ? t('เปลี่ยน Gemini API key', 'Change Gemini API key')
+              : t('เพิ่ม Gemini API key', 'Add Gemini API key')}
+          </button>
+          {getGeminiKey() && (
+            <button
+              className="button"
+              onClick={() => {
+                try {
+                  clearGeminiKey();
+                  setDiagnostics(null);
+                  onRefresh();
+                  notify(t('ลบ key จากเบราว์เซอร์แล้ว', 'Browser key removed.'));
+                } catch {
+                  notify(
+                    t(
+                      'ลบ key ไม่สำเร็จ กรุณาตรวจการอนุญาตพื้นที่จัดเก็บ',
+                      'Unable to remove key. Check browser storage permissions.',
+                    ),
+                  );
+                }
+              }}
+            >
+              {t('ลบ key', 'Remove key')}
+            </button>
+          )}
+        </div>
+      </div>
+      {keyModal && (
+        <Modal
+          title={t('ตั้งค่า Gemini API key', 'Gemini API key settings')}
+          onClose={() => {
+            setKeyModal(false);
+            setKey('');
+          }}
+        >
+          <form
+            className="credential-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              try {
+                if (!key.trim()) {
+                  setKeyError(t('กรุณาใส่ Gemini API key', 'Enter your Gemini API key.'));
+                  return;
+                }
+                saveGeminiKey(key, remember);
+                setKey('');
+                setKeyModal(false);
+                setDiagnostics(null);
+                onRefresh();
+                notify(
+                  t(
+                    'บันทึก key แล้ว กดตรวจข้อมูลโมเดลเพื่อทดสอบการเชื่อมต่อ',
+                    'Key saved. Check provider model metadata to test access.',
+                  ),
+                );
+              } catch (error) {
+                setKeyError(error instanceof Error ? error.message : 'Unable to save key.');
+              }
+            }}
+          >
+            <p>
               {t(
-                'อย่าวาง Gemini API key ในหน้าเว็บหรือไฟล์ที่ commit เข้า Git',
-                'Keep the Gemini key on the server. Never put it in browser code or commit it to Git.',
+                'Key จะถูกส่งผ่าน HTTPS ไปยังเซิร์ฟเวอร์แอปนี้และ Google เพื่อเรียก AI ไม่ถูกบันทึกบนเซิร์ฟเวอร์หรือรวมในไฟล์ส่งออก',
+                'Your key is sent over HTTPS to this app’s server and Google for AI requests. It is not stored on the server or included in exports.',
               )}
             </p>
-          </div>
-        </div>
+            <label htmlFor="gemini-api-key">Gemini API key</label>
+            <input
+              id="gemini-api-key"
+              type={visible ? 'text' : 'password'}
+              value={key}
+              onChange={(e) => {
+                setKey(e.target.value);
+                setKeyError('');
+              }}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              aria-describedby="gemini-key-storage"
+              aria-invalid={!!keyError}
+            />
+            <label className="credential-option">
+              <input
+                type="checkbox"
+                checked={visible}
+                onChange={(e) => setVisible(e.target.checked)}
+              />
+              {t('แสดง key', 'Show key')}
+            </label>
+            <label className="credential-option">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              {t('จำบนอุปกรณ์นี้', 'Remember on this device')}
+            </label>
+            <p id="gemini-key-storage" className="micro muted">
+              {remember
+                ? t(
+                    'เก็บในเบราว์เซอร์จนกดลบ key อย่าใช้บนเครื่องที่ใช้ร่วมกัน',
+                    'Stored in this browser until removed. Avoid this option on shared devices.',
+                  )
+                : t(
+                    'เก็บเฉพาะแท็บนี้ รีเฟรชได้ และลบเมื่อปิดแท็บ',
+                    'Saved for this tab, including reloads; cleared when the tab closes.',
+                  )}
+            </p>
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+              {t('สร้าง key ที่ Google AI Studio', 'Get a key from Google AI Studio')}{' '}
+              <ExternalLink size={12} />
+            </a>
+            {keyError && <p role="alert">{keyError}</p>}
+            <button className="button primary" type="submit">
+              {t('บันทึกและใช้งาน', 'Save and use key')}
+            </button>
+          </form>
+        </Modal>
       )}
       {health?.requiresAccessToken && (
         <form
