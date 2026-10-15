@@ -1,11 +1,6 @@
 {
-  "name": "Vanguard AI - Executive Interview Intelligence",
-  "description": "ระบบ AI อัจฉริยะระดับผู้บริหารสำหรับการเตรียมตัวและรับมือการสัมภาษณ์งานแบบ Realtime พร้อมวิเคราะห์เชิงลึก คำตอบ STAR และเทคนิคชั้นสูง",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "name": "Interview Pulse",
+  "description": "Thai and English interview preparation with streamed coaching, mock interviews, company research, and local session recovery.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
