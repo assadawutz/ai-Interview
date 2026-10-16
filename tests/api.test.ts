@@ -605,3 +605,43 @@ test('quota cooldown routes later text requests directly to an independent provi
     }),
   );
 });
+
+test('authentication precedes free catalog lookup and degraded health remains available', async () => {
+  let lookups = 0;
+  const app = createApp({
+    accessToken: 'private-test-token',
+    freeCatalog: async () => {
+      lookups++;
+      throw new Error('offline');
+    },
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    'X-LLM-Config': JSON.stringify({
+      provider: 'openrouter',
+      model: 'test:free',
+      primary: 'external',
+      freeOnly: true,
+      agentMode: true,
+    }),
+    'X-LLM-API-Key': 'test-provider-key',
+  };
+  try {
+    const denied = await post(base, 'detect-question', { transcript: 'Hello?' }, headers);
+    assert.equal(denied.status, 401);
+    assert.equal(lookups, 0);
+    const response = await fetch(base + '/api/health', { headers });
+    assert.equal(response.status, 200);
+    const health = await response.json();
+    assert.equal(health.status, 'degraded');
+    assert.equal(health.capabilities.text, false);
+    assert.match(health.catalogError, /Cannot verify/);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

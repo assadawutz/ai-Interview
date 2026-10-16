@@ -135,11 +135,17 @@ export default function App() {
   const language = settings.language;
   const t = (th: string, en: string) => (language === 'th' ? th : en);
   const notify = useCallback((message: string) => setNotice(message), []);
-  const speech = useSpeech(language, notify);
+  const speech = useSpeech(language, notify, health?.capabilities?.tts ?? true);
   const interview = useInterview(context, settings, notify, (text) => {
     void speech.speak(text);
   });
-  const audio = useAudio(settings, interview.add, interview.questions, notify);
+  const audio = useAudio(
+    settings,
+    interview.add,
+    interview.questions,
+    notify,
+    health?.capabilities?.transcription ?? true,
+  );
   const currentTitle = (
     sessionInfo.title ||
     `${context.role || t('เตรียมสัมภาษณ์', 'Interview prep')}${context.targetCompany ? ` · ${context.targetCompany}` : ''}`
@@ -175,6 +181,8 @@ export default function App() {
     try {
       const status = await request<Health>('health');
       setHealth(status);
+      if (status.capabilities?.search === false)
+        setSettings((previous) => ({ ...previous, useSearch: false }));
       setRequestTimeoutMs(status.requestTimeoutMs);
     } catch {
       setHealth(null);
@@ -891,6 +899,7 @@ export default function App() {
                         <input
                           type="checkbox"
                           checked={settings.useSearch}
+                          disabled={health?.capabilities?.search === false}
                           onChange={(e) =>
                             updateSettings({ ...settings, useSearch: e.target.checked })
                           }
@@ -1158,6 +1167,8 @@ export default function App() {
                 context={context}
                 language={language}
                 onSave={setContext}
+                documentsAvailable={health?.capabilities?.documents ?? true}
+                searchAvailable={health?.capabilities?.search ?? true}
                 notify={notify}
               />
             </div>
@@ -1254,7 +1265,9 @@ export default function App() {
                 }
               >
                 <option value="microphone">{t('ไมโครโฟน', 'Microphone')}</option>
-                <option value="tab">{t('เสียงจากแท็บที่แชร์', 'Shared tab audio')}</option>
+                <option value="tab" disabled={health?.capabilities?.transcription === false}>
+                  {t('เสียงจากแท็บที่แชร์', 'Shared tab audio')}
+                </option>
               </select>
             </label>
             {settings.audioSource === 'microphone' && (
@@ -1269,7 +1282,11 @@ export default function App() {
                     {t('ค่าเริ่มต้น · Browser speech', 'Default · Browser speech')}
                   </option>
                   {devices.map((device, i) => (
-                    <option key={device.deviceId || i} value={device.deviceId}>
+                    <option
+                      key={device.deviceId || i}
+                      value={device.deviceId}
+                      disabled={health?.capabilities?.transcription === false}
+                    >
                       {device.label || `Microphone ${i + 1}`}
                     </option>
                   ))}
@@ -1306,8 +1323,8 @@ export default function App() {
                 <strong>{t('ตั้งค่า AI', 'Connect AI')}</strong>
                 <p>
                   {t(
-                    'ตั้ง GEMINI_API_KEY บนเซิร์ฟเวอร์ ดูรายละเอียดในหน้าสถานะระบบ',
-                    'Set GEMINI_API_KEY on the server. See System for setup details.',
+                    'เปิดหน้าระบบเพื่อตั้งค่า Gemini หรือเลือก LLM และ Agents ฟรี',
+                    'Open System to connect Gemini or configure free LLM agents.',
                   )}
                 </p>
               </li>

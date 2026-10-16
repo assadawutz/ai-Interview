@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Capabilities } from './capabilities.js';
 
 export const languageSchema = z.enum(['th', 'en']);
 export const speedSchema = z.enum(['fast', 'balanced', 'deep']);
@@ -224,6 +225,8 @@ export type Health = {
   pricingConfigured: boolean;
   requestTimeoutMs?: number;
   localLLMSupported?: boolean;
+  capabilities?: Capabilities;
+  catalogError?: string;
   agentPlan?: Record<string, string>;
 };
 

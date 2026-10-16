@@ -284,3 +284,13 @@ automatically. An OpenRouter account key is required, and free-tier limits still
 apply. Account-wide daily exhaustion stops rather than retrying the same free
 account or switching to a paid service. A per-model transient failure may use
 one free fallback before text starts; partial answers are never restarted.
+
+### Provider capabilities
+
+System status now reports the capabilities of the saved route. Free-only agents
+use text generation and browser speech; file extraction, Google web search and
+Gemini audio remain disabled under that policy. Paste resume/JD text manually,
+or connect Gemini and turn off free-only mode for those features. When the free
+catalog cannot verify zero pricing, the app shows a degraded status and pauses
+requests instead of selecting an unverified model. Quotas still depend on the
+provider account; fallback cannot create additional daily quota.

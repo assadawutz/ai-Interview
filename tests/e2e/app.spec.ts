@@ -594,3 +594,56 @@ test('free agent preset is the fresh default and saves an explicit free-only fal
   expect(policy.agentMode).toBe(true);
   expect(policy.fallback).toBe(true);
 });
+
+test('free-only capability policy disables unsupported search and uploads while preserving pasted profile inputs', async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route('**/api/health', (route) =>
+    route.fulfill({
+      json: {
+        ...health,
+        capabilities: {
+          text: true,
+          transcription: false,
+          documents: false,
+          search: false,
+          tts: false,
+          browserSpeech: true,
+          freeOnly: true,
+        },
+      },
+    }),
+  );
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: 'ค้นเว็บ', exact: true })).toBeDisabled();
+  await nav(page, 'โปรไฟล์ของฉัน');
+  await expect(page.locator('input[type=file]').first()).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'ค้นหาข้อมูลบริษัท', exact: true })).toBeDisabled();
+  await expect(
+    page.getByText('การอ่านไฟล์และค้นเว็บต้องใช้ Gemini', { exact: false }),
+  ).toBeVisible();
+});
+
+test('changing the active question cancels a pending coach follow-up and clears its draft', async ({
+  page,
+}) => {
+  await setup(page);
+  await ask(page);
+  let pending = false;
+  await page.route('**/api/copilot-chat', async (route) => {
+    pending = true;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({ json: { reply: 'Old question reply must not appear' } }).catch(() => {});
+  });
+  await page
+    .getByRole('textbox', { name: 'คำถามเพิ่มเติม', exact: true })
+    .fill('Explain that example');
+  await page.getByRole('button', { name: 'ส่งคำถาม', exact: true }).click();
+  await expect.poll(() => pending).toBe(true);
+  await ask(page, 'How do you resolve conflicts with colleagues?');
+  await expect(page.getByRole('textbox', { name: 'คำถามเพิ่มเติม', exact: true })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'คำถามเพิ่มเติม', exact: true })).toBeEnabled();
+  await page.waitForTimeout(1700);
+  await expect(page.locator('.chat-log')).not.toContainText('Old question reply');
+});

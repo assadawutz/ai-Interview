@@ -12,6 +12,7 @@ export function useAudio(
   ) => void,
   questions: QueuedQuestion[],
   notify: (message: string) => void,
+  allowServerTranscription = true,
 ) {
   const service = useRef<AudioService | null>(null);
   service.current ??= new AudioService();
@@ -123,6 +124,7 @@ export function useAudio(
     setStarting(true);
     setStatus('Requesting audio permission…');
     await service.current!.start({
+      allowServerTranscription,
       source: settings.audioSource,
       deviceId: settings.deviceId,
       language: settings.language,
@@ -149,7 +151,7 @@ export function useAudio(
   useEffect(() => {
     stop();
     return stop;
-  }, [settings.audioSource, settings.deviceId, settings.language]);
+  }, [settings.audioSource, settings.deviceId, settings.language, allowServerTranscription]);
   return {
     listening,
     starting,

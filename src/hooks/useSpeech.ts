@@ -1,6 +1,10 @@
 import { useRef, useState, useEffect } from 'react';
 import { request } from '../lib/api';
-export function useSpeech(language: 'th' | 'en', notify: (text: string) => void) {
+export function useSpeech(
+  language: 'th' | 'en',
+  notify: (text: string) => void,
+  allowServerSpeech = true,
+) {
   const [playing, setPlaying] = useState(false);
   const current = useRef<{
     audio?: HTMLAudioElement;
@@ -22,6 +26,7 @@ export function useSpeech(language: 'th' | 'en', notify: (text: string) => void)
     current.current = token;
     setPlaying(true);
     try {
+      if (!allowServerSpeech) throw new Error('Using browser speech.');
       const response = await request<{ audio: string; mimeType: string }>(
         'tts',
         { text: text.slice(0, 5000), language },
@@ -44,7 +49,10 @@ export function useSpeech(language: 'th' | 'en', notify: (text: string) => void)
     } catch (error) {
       if (current.current !== token || token.controller.signal.aborted) return;
       if ('speechSynthesis' in window) {
-        notify('AI audio unavailable; using browser speech.');
+        token.audio?.pause();
+        if (token.url) URL.revokeObjectURL(token.url);
+        token.url = undefined;
+        if (allowServerSpeech) notify('AI audio unavailable; using browser speech.');
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = language === 'th' ? 'th-TH' : 'en-US';
         utterance.onend = () => {
@@ -63,6 +71,6 @@ export function useSpeech(language: 'th' | 'en', notify: (text: string) => void)
       }
     }
   };
-  useEffect(() => stop, []);
+  useEffect(() => stop, [language, allowServerSpeech]);
   return { speak, stop, playing };
 }

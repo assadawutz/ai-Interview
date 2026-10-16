@@ -1,6 +1,7 @@
 import { fileBase64, request } from '../lib/api';
 export type AudioOptions = {
   source: 'microphone' | 'tab';
+  allowServerTranscription?: boolean;
   deviceId: string;
   language: 'th' | 'en';
   onTranscript: (text: string, final: boolean) => void;
@@ -48,6 +49,18 @@ export class AudioService {
     const generation = ++this.generation;
     this.options = options;
     try {
+      const browser = window as unknown as {
+        SpeechRecognition?: RecognitionConstructor;
+        webkitSpeechRecognition?: RecognitionConstructor;
+      };
+      const Native = browser.SpeechRecognition || browser.webkitSpeechRecognition;
+      if (
+        options.allowServerTranscription === false &&
+        !(options.source === 'microphone' && !options.deviceId && Native)
+      )
+        throw new Error(
+          'This route supports browser speech only. Use Chrome or Edge with the default microphone, or connect Gemini for recorded audio.',
+        );
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error('Audio capture requires HTTPS or localhost and a supported browser.');
       const stream =
@@ -104,11 +117,6 @@ export class AudioService {
         this.frame = requestAnimationFrame(tick);
       };
       tick();
-      const browser = window as unknown as {
-        SpeechRecognition?: RecognitionConstructor;
-        webkitSpeechRecognition?: RecognitionConstructor;
-      };
-      const Native = browser.SpeechRecognition || browser.webkitSpeechRecognition;
       // Browser speech recognition cannot select a microphone; use captured audio for explicit devices.
       if (options.source === 'microphone' && !options.deviceId && Native)
         this.startNative(Native, generation);
@@ -165,7 +173,12 @@ export class AudioService {
           recognition.abort();
           this.recognition = null;
           options.onStatus('Browser speech unavailable; switching to Gemini audio transcription.');
-          this.startRecorder(generation);
+          if (options.allowServerTranscription === false) {
+            this.stop();
+            options.onError(
+              'Browser speech is unavailable. Restart listening or type your question.',
+            );
+          } else this.startRecorder(generation);
         }
       }
     };

@@ -8,7 +8,11 @@ export function ProfilePanel({
   language,
   onSave,
   notify,
+  documentsAvailable = true,
+  searchAvailable = true,
 }: {
+  documentsAvailable?: boolean;
+  searchAvailable?: boolean;
   context: CandidateContext;
   language: 'th' | 'en';
   onSave: (context: CandidateContext) => void;
@@ -171,13 +175,21 @@ export function ProfilePanel({
           <button
             type="button"
             className="button"
-            disabled={!!busy || !form.targetCompany.trim()}
+            disabled={!!busy || !searchAvailable || !form.targetCompany.trim()}
             onClick={search}
           >
             {busy === 'search' ? <LoaderCircle className="spin" size={15} /> : <Search size={15} />}{' '}
             {t('ค้นหาข้อมูลบริษัท', 'Research company')}
           </button>
         </div>
+        {(!documentsAvailable || !searchAvailable) && (
+          <p className="micro muted">
+            {t(
+              'การอ่านไฟล์และค้นเว็บต้องใช้ Gemini และปิดโหมดฟรีล้วน คุณยังวางข้อความประสบการณ์และ JD ได้',
+              'File extraction and web research require Gemini with free-only mode off. You can still paste your experience and JD.',
+            )}
+          </p>
+        )}
         {intel && (
           <div className="research-result">
             <p>{intel.text}</p>
@@ -212,7 +224,7 @@ export function ProfilePanel({
                       : t('อัปโหลด JD', 'Upload job description')
                   }
                   accept="application/pdf,image/png,image/jpeg,image/webp"
-                  disabled={!!busy}
+                  disabled={!!busy || !documentsAvailable}
                   onChange={(e) => {
                     void upload(e.target.files?.[0], field);
                     e.target.value = '';

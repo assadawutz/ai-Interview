@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAgentPlan, freeTextModels } from '../server/agents';
+import { buildAgentPlan, freeTextModels, type CatalogModel } from '../server/agents';
 import { agentDefaults } from '../shared/agents';
 const catalog = Object.values(agentDefaults).map((id) => ({
   id,
@@ -12,11 +12,14 @@ test('agents assign independent defaults to detection, coaching, specialist and 
   assert.deepEqual(buildAgentPlan(catalog), agentDefaults);
 });
 test('free selection rejects priced aliases, missing pricing and non-text models', () => {
-  const bad = [
+  const bad: CatalogModel[] = [
     { ...catalog[0], pricing: { prompt: '0.01', completion: '0' } },
     { ...catalog[1], pricing: undefined },
     { ...catalog[2], architecture: { output_modalities: ['audio'] } },
     { ...catalog[3], id: 'priced/model' },
+    { ...catalog[0], pricing: { prompt: '', completion: '0' } },
+    { ...catalog[0], pricing: { prompt: ' ', completion: '0' } },
+    { ...catalog[0], pricing: { prompt: '0', completion: '0', request: '0.01' } },
   ];
   assert.equal(freeTextModels(bad).length, 0);
   assert.throws(() => buildAgentPlan(bad));

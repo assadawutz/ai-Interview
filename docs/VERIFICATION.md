@@ -23,8 +23,8 @@ The fixture server is guarded by `INTERVIEW_TEST_MODE=1`, is not imported by `se
 ## Verified local run for v2.0
 
 - Formatting, strict TypeScript checks and production build passed.
-- **52 regression/API/quality/adapter/agent tests passed.**
-- **27 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
+- **55 regression/API/quality/adapter/agent tests passed.**
+- **29 browser cases passed across development UI and production integration flows**, including 9 full API/provider-boundary integration cases.
 - `npm audit` reported **0 known vulnerabilities** in the installed dependency tree at this check.
 - The live evaluator stopped before generation because the server key is not configured. No live Gemini quality score is claimed.
 
@@ -88,3 +88,18 @@ they do not consume live account quota. The browser checks the fresh recommended
 preset, key isolation, saved free-only policy and active role display. Live free
 model metadata was checked, but no quality ranking, account authorization, or
 unlimited free availability is claimed.
+
+## Cross-module capability and cancellation fixes
+
+Health reports text, search, documents, transcription and TTS capabilities from
+request-scoped provider credentials and the free-only policy. A failed free
+catalog produces a degraded health response and pauses generation. Tests cover
+incorrect readiness with only a Gemini key, missing external-primary credentials,
+blank/nonzero request prices, and authentication before catalog lookup.
+
+The browser disables unsupported web research and file extraction while retaining
+manual profile editing. Browser speech is used directly when server TTS is
+unavailable; recording cannot silently switch to Gemini under a free-only policy.
+Copilot requests are canceled and cleared when the active question, profile or
+language changes. Model lookup is canceled on provider changes, modal close and
+reset. These checks do not verify real microphone hardware or live inference.

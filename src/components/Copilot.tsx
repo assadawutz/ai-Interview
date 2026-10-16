@@ -18,7 +18,15 @@ export function Copilot({
     [busy, setBusy] = useState(false);
   const token = useRef<AbortController | null>(null);
   const t = (th: string, en: string) => (language === 'th' ? th : en);
-  useEffect(() => () => token.current?.abort(), []);
+  const contextKey = JSON.stringify(context);
+  useEffect(() => {
+    token.current?.abort();
+    token.current = null;
+    setMessages([]);
+    setInput('');
+    setBusy(false);
+    return () => token.current?.abort();
+  }, [contextKey, question, language]);
   return (
     <section className="copilot">
       <h3>

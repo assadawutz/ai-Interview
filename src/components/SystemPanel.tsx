@@ -63,12 +63,14 @@ export function SystemPanel({
           <span className={`system-dot ${health?.hasApiKey ? 'good' : ''}`} />
           <strong>AI / LLM</strong>
           <span>
-            {health?.hasApiKey
-              ? t(
-                  'ตั้งค่า key แล้ว · ยังไม่ได้ยืนยันสิทธิ์โมเดล',
-                  'Key configured · model access unverified',
-                )
-              : t('ต้องตั้งค่า GEMINI_API_KEY', 'Set GEMINI_API_KEY')}
+            {health?.catalogError
+              ? health.catalogError
+              : health?.hasApiKey
+                ? t(
+                    'ตั้งค่า key แล้ว · ยังไม่ได้ยืนยันสิทธิ์โมเดล',
+                    'Key configured · model access unverified',
+                  )
+                : t('ต้องตั้งค่า GEMINI_API_KEY', 'Set GEMINI_API_KEY')}
           </span>
         </div>
         <div>

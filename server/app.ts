@@ -6,6 +6,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 const quotaCooldowns = new Map<string, number>();
 import { once } from 'node:events';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { resolveCapabilities } from '../shared/capabilities.js';
 import { buildAgentPlan, freeCatalog } from './agents.js';
 import { needsSpecialist, type AgentPlan } from '../shared/agents.js';
 import { normalizeGeminiKey } from '../shared/credentials.js';
@@ -172,6 +173,7 @@ export function createApp(
     externalKey: string;
     externals?: Map<string, Provider>;
     plan?: AgentPlan;
+    catalogError?: string;
     nativeLimited?: boolean;
   }>();
   const app = express();
@@ -200,53 +202,9 @@ export function createApp(
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  app.use('/api', async (req, res, next) => {
-    try {
-      const key = normalizeGeminiKey(req.get('X-Gemini-API-Key') || '');
-      const route = routingSchema.parse(JSON.parse(req.get('X-LLM-Config') || '{}'));
-      const externalKey = normalizeGeminiKey(req.get('X-LLM-API-Key') || '');
-      let plan: AgentPlan | undefined;
-      if (route.freeOnly || route.agentMode) {
-        if (route.provider !== 'openrouter')
-          return res.status(400).json({
-            error:
-              'Verified free agent routing requires OpenRouter. Disable this preset to use another provider.',
-          });
-        try {
-          plan = buildAgentPlan(await (options.freeCatalog || freeCatalog)());
-        } catch {
-          return res.status(503).json({
-            error:
-              'Cannot verify free model prices. Requests are paused; paid models will not be selected.',
-          });
-        }
-      }
-      requestProvider.run({ key, route, externalKey, plan }, next);
-    } catch {
-      return res.status(400).json({
-        error:
-          'Invalid AI routing settings or credential. Paste a key value without spaces or line breaks.',
-      });
-    }
-  });
-  app.get('/api/health', (_req, res) =>
-    res.json({
-      requestTimeoutMs: config.timeoutMs + 5000,
-      status:
-        options.provider || requestProvider.getStore()?.key || hasApiKey() || hasExternal()
-          ? 'ready'
-          : 'setup_required',
-      hasApiKey:
-        !!options.provider || !!requestProvider.getStore()?.key || hasApiKey() || hasExternal(),
-      requiresAccessToken: !!(options.accessToken ?? config.accessToken),
-      models: getModels(),
-      agentPlan: requestProvider.getStore()?.plan,
-      pricingConfigured: Object.keys(config.pricing).length > 0,
-      localLLMSupported: ollamaDeploymentSupported(),
-    }),
-  );
   const accessToken = options.accessToken ?? config.accessToken;
   app.use('/api', (req, res, next) => {
+    if (req.method === 'GET' && req.path === '/health') return next();
     if (req.method !== 'GET' && req.headers.origin) {
       const allowed = config.appUrl
         ? new URL(config.appUrl).origin
@@ -272,10 +230,59 @@ export function createApp(
     '/api',
     rateLimit({
       windowMs: 60000,
+      skip: (req) => req.method === 'GET' && req.path === '/health',
       limit: config.rateLimit,
       standardHeaders: 'draft-8',
       legacyHeaders: false,
       message: { error: 'Too many requests. Please wait a minute.' },
+    }),
+  );
+  app.use('/api', async (req, res, next) => {
+    try {
+      const key = normalizeGeminiKey(req.get('X-Gemini-API-Key') || '');
+      const route = routingSchema.parse(JSON.parse(req.get('X-LLM-Config') || '{}'));
+      const externalKey = normalizeGeminiKey(req.get('X-LLM-API-Key') || '');
+      let plan: AgentPlan | undefined;
+      let catalogError: string | undefined;
+      if (route.freeOnly || route.agentMode) {
+        if (route.provider !== 'openrouter')
+          return res.status(400).json({
+            error:
+              'Verified free agent routing requires OpenRouter. Disable this preset to use another provider.',
+          });
+        try {
+          plan = buildAgentPlan(await (options.freeCatalog || freeCatalog)());
+        } catch {
+          catalogError =
+            'Cannot verify free model prices. Requests are paused; paid models will not be selected.';
+          if (!(req.method === 'GET' && req.path === '/health'))
+            return res.status(503).json({ error: catalogError });
+        }
+      }
+      requestProvider.run({ key, route, externalKey, plan, catalogError }, next);
+    } catch {
+      return res.status(400).json({
+        error:
+          'Invalid AI routing settings or credential. Paste a key value without spaces or line breaks.',
+      });
+    }
+  });
+  app.get('/api/health', (_req, res) =>
+    res.json({
+      requestTimeoutMs: config.timeoutMs + 5000,
+      status: requestProvider.getStore()?.catalogError
+        ? 'degraded'
+        : capabilities().text
+          ? 'ready'
+          : 'setup_required',
+      hasApiKey: capabilities().text,
+      capabilities: capabilities(),
+      catalogError: requestProvider.getStore()?.catalogError,
+      requiresAccessToken: !!(options.accessToken ?? config.accessToken),
+      models: getModels(),
+      agentPlan: requestProvider.getStore()?.plan,
+      pricingConfigured: Object.keys(config.pricing).length > 0,
+      localLLMSupported: ollamaDeploymentSupported(),
     }),
   );
   app.use(express.json({ limit: '4mb' }));
@@ -307,6 +314,18 @@ export function createApp(
       state?.route.model &&
       (state.route.fallback || state.route.primary === 'external')
     );
+  }
+  function capabilities() {
+    const state = requestProvider.getStore();
+    const route = state?.route || defaultRouting;
+    return resolveCapabilities({
+      native: !!(options.provider || state?.key || hasApiKey()),
+      external: hasExternal() && (route.provider !== 'ollama' || ollamaDeploymentSupported()),
+      primary: route.primary,
+      fallback: route.fallback,
+      freeOnly: route.freeOnly || route.agentMode,
+      catalogReady: !!state?.plan,
+    });
   }
   function quotaIdentity() {
     const key = requestProvider.getStore()?.key || config.apiKey;
@@ -357,7 +376,12 @@ export function createApp(
   }
   function getProvider(): Provider {
     if (!hasExternal()) {
-      if (requestProvider.getStore()?.route.freeOnly)
+      if (
+        requestProvider.getStore()?.route.primary === 'external' &&
+        !(requestProvider.getStore()?.route.freeOnly || requestProvider.getStore()?.route.agentMode)
+      )
+        throw new ApiError(503, 'Add the selected provider key and model in Settings.');
+      if (requestProvider.getStore()?.route.freeOnly || requestProvider.getStore()?.route.agentMode)
         throw new ApiError(
           503,
           'Add an OpenRouter key for the free agent preset. Paid or Gemini routes are blocked.',
@@ -367,7 +391,7 @@ export function createApp(
     const state = requestProvider.getStore()!;
     const select = (model: string) => {
       if (!model.startsWith('external:')) {
-        if (state.route.freeOnly)
+        if (state.route.freeOnly || state.route.agentMode)
           throw new ApiError(
             400,
             'Free-only agents support text. Use browser speech; Google audio, documents and search are disabled.',
@@ -542,7 +566,11 @@ export function createApp(
       let receivedText = false;
       const specialized =
         requestProvider.getStore()?.plan && needsSpecialist(data.taskType, data.question);
-      let selected = specialized ? getModels().deep : getModels()[data.speed];
+      let selected = data.useSearch
+        ? config.models[data.speed]
+        : specialized
+          ? getModels().deep
+          : getModels()[data.speed];
       try {
         const run = async (model: string) => {
           await send({ type: 'meta', model });
@@ -771,7 +799,7 @@ export function createApp(
     async (data, res, signal) => {
       const response = await generate(
         {
-          model: getModels().balanced,
+          model: config.models.balanced,
           contents: JSON.stringify(data),
           config: {
             systemInstruction: `${safety} Research this company using web search. Respond in ${data.language === 'en' ? 'English' : 'Thai'}. Summarize products, recent dated news, hiring priorities and 3 useful questions to ask. Distinguish verified facts from inference. Do not imply access to private LinkedIn data.`,

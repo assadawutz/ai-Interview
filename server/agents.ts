@@ -5,12 +5,16 @@ export type CatalogModel = {
   architecture?: { output_modalities?: string[] };
   supported_parameters?: string[];
 };
+const zeroPrice = (value: unknown) =>
+  ((typeof value === 'string' && value.trim() !== '') || typeof value === 'number') &&
+  Number(value) === 0;
 export function freeTextModels(models: CatalogModel[]) {
   return models.filter(
     (m) =>
       (m.id.endsWith(':free') || m.id === 'openrouter/free') &&
-      Number(m.pricing?.prompt ?? -1) === 0 &&
-      Number(m.pricing?.completion ?? -1) === 0 &&
+      zeroPrice(m.pricing?.prompt) &&
+      zeroPrice(m.pricing?.completion) &&
+      (m.pricing?.request === undefined || zeroPrice(m.pricing.request)) &&
       (!m.architecture?.output_modalities || m.architecture.output_modalities.includes('text')),
   );
 }
@@ -29,8 +33,18 @@ export function buildAgentPlan(models: CatalogModel[]): AgentPlan {
   };
 }
 let cached: { models: CatalogModel[]; until: number } | undefined;
+let loading: Promise<CatalogModel[]> | undefined;
 export async function freeCatalog() {
   if (cached && cached.until > Date.now()) return cached.models;
+  if (loading) return loading;
+  loading = loadCatalog();
+  try {
+    return await loading;
+  } finally {
+    loading = undefined;
+  }
+}
+async function loadCatalog() {
   const response = await fetch('https://openrouter.ai/api/v1/models', {
     signal: AbortSignal.timeout(10000),
   });

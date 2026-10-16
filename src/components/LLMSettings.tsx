@@ -54,6 +54,7 @@ export function LLMSettings({
             title={t('LLM และการสลับสำรอง', 'LLM routing and fallback')}
             onClose={() => {
               lookup.current?.abort();
+              setLoading(false);
               setOpen(false);
               setKey('');
             }}
@@ -65,6 +66,7 @@ export function LLMSettings({
                 try {
                   saveLLMConnection(route, key);
                   lookup.current?.abort();
+                  setLoading(false);
                   setOpen(false);
                   setKey('');
                   onRefresh();
@@ -84,6 +86,7 @@ export function LLMSettings({
                 type="button"
                 onClick={() => {
                   lookup.current?.abort();
+                  setLoading(false);
                   if (route.provider !== 'openrouter') setKey('');
                   setRoute(freeAgentRouting);
                   setModels([]);
@@ -128,6 +131,10 @@ export function LLMSettings({
                   type="checkbox"
                   checked={route.agentMode}
                   onChange={(e) => {
+                    lookup.current?.abort();
+                    setLoading(false);
+                    setModels([]);
+                    setError('');
                     if (e.target.checked) {
                       if (route.provider !== 'openrouter') setKey('');
                       setRoute(freeAgentRouting);
@@ -142,6 +149,7 @@ export function LLMSettings({
                   value={route.provider}
                   onChange={(e) => {
                     lookup.current?.abort();
+                    setLoading(false);
                     setModels([]);
                     setError('');
                     setRoute({
@@ -270,6 +278,7 @@ export function LLMSettings({
               <label>
                 {t('โมเดลหลัก', 'Primary route')}
                 <select
+                  disabled={route.agentMode}
                   value={route.primary}
                   onChange={(e) =>
                     setRoute({ ...route, primary: e.target.value as LLMRouting['primary'] })
@@ -288,13 +297,18 @@ export function LLMSettings({
                   onChange={(e) => setRoute({ ...route, fallback: e.target.checked })}
                 />
                 {t(
-                  'สลับจาก Gemini มาเส้นทางนี้อัตโนมัติเมื่อเรียกไม่สำเร็จ',
-                  'Automatically fail over from Gemini to this route',
+                  route.agentMode
+                    ? 'สลับไปโมเดลฟรีสำรองเมื่อโมเดลหลักไม่พร้อม'
+                    : 'สลับจาก Gemini มาเส้นทางนี้อัตโนมัติเมื่อเรียกไม่สำเร็จ',
+                  route.agentMode
+                    ? 'Use the free backup when a selected agent model is unavailable'
+                    : 'Automatically fail over from Gemini to this route',
                 )}
               </label>
               <label>
                 {t('Gemini model ID (ไม่บังคับ)', 'Gemini model ID (optional)')}
                 <input
+                  disabled={route.agentMode}
                   value={route.geminiModel}
                   onChange={(e) => setRoute({ ...route, geminiModel: e.target.value })}
                   autoComplete="off"
@@ -350,6 +364,8 @@ export function LLMSettings({
                 className="button"
                 type="button"
                 onClick={() => {
+                  lookup.current?.abort();
+                  setLoading(false);
                   clearLLMConnection();
                   setOpen(false);
                   setKey('');
