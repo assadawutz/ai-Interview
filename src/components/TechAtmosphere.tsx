@@ -8,9 +8,9 @@ export function TechAtmosphere() {
         <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" focusable="false">
           <defs>
             <linearGradient id="pulse-edge" x1="0" x2="1">
-              <stop stopColor="#3662ff" />
-              <stop offset=".5" stopColor="#bcff39" />
-              <stop offset="1" stopColor="#ee55be" />
+              <stop stopColor="var(--ds-purple, #7042cc)" />
+              <stop offset=".5" stopColor="var(--ds-lime, #caff45)" />
+              <stop offset="1" stopColor="var(--ds-yellow, #ffe45c)" />
             </linearGradient>
           </defs>
           <g className="circuit-lines" fill="none" stroke="url(#pulse-edge)" strokeWidth="1.5">
@@ -22,20 +22,25 @@ export function TechAtmosphere() {
             className="circuit-morph"
             d="M960 260C1010 210 1100 220 1120 280C1140 340 1060 370 1010 340C960 310 920 310 960 260Z"
             fill="none"
-            stroke="#cb46b0"
+            stroke="var(--ds-purple, #7042cc)"
             strokeWidth="1.5"
           />
           <g
             className="circuit-charge"
             fill="none"
-            stroke="#315bff"
+            stroke="var(--ds-purple, #7042cc)"
             strokeWidth="3"
             strokeDasharray="14 360"
           >
             <path d="M70 160H300L380 240H650L760 130H1130" />
             <path d="M150 680L300 530H540L650 640H890L1050 480" />
           </g>
-          <g className="circuit-nodes" fill="#caff45" stroke="#111827" strokeWidth="2">
+          <g
+            className="circuit-nodes"
+            fill="var(--ds-yellow, #ffe45c)"
+            stroke="#111827"
+            strokeWidth="2"
+          >
             <circle cx="380" cy="240" r="6" />
             <circle cx="760" cy="130" r="6" />
             <circle cx="540" cy="530" r="6" />

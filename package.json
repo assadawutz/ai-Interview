@@ -1,12 +1,12 @@
 {
   "name": "interview-pulse",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
-    "start": "tsx server.ts",
-    "build": "tsc --noEmit && vite build",
+    "dev": "vite --host 0.0.0.0",
+    "start": "vite preview --host 0.0.0.0",
+    "build": "tsc --noEmit -p tsconfig.client.json && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
@@ -14,7 +14,10 @@
     "check": "npm run format:check && npm run lint && npm test && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "eval:live": "tsx scripts/evaluate-live.ts"
+    "eval:live": "tsx scripts/evaluate-live.ts",
+    "dev:server": "tsx watch server.ts",
+    "start:server": "tsx server.ts",
+    "test:client": "playwright test --config playwright.client.config.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.69",

@@ -1,21 +1,21 @@
 /* Neon studio: readable glass surfaces, brutalist controls, bounded vector motion. */
 @media screen {
   :root {
-    --ink: #141a2b;
+    --ink: var(--ds-ink, #171323);
     --muted: #596178;
     --line: #c7cde0;
-    --violet: #3653d8;
+    --violet: var(--ds-purple, #7042cc);
     --navy: #17213e;
-    --radius: 14px;
-    --acid: #caff45;
-    --electric: #365bff;
+    --radius: var(--ds-radius, 12px);
+    --acid: var(--ds-lime, #caff45);
+    --electric: var(--ds-purple, #7042cc);
     --tech-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-    background: #edf0fa;
+    background: #f5f0ff;
   }
   body {
     background:
-      radial-gradient(ellipse at 85% 8%, #d8e0ff 0, transparent 48%),
-      radial-gradient(ellipse at 25% 85%, #e9f4c9 0, transparent 45%), #edf0fa;
+      radial-gradient(ellipse at 85% 8%, #e4d5ff 0, transparent 48%),
+      radial-gradient(ellipse at 25% 85%, #e9f4c9 0, transparent 45%), #f5f0ff;
   }
   .app-shell {
     isolation: isolate;
@@ -44,8 +44,8 @@
   .tech-gradient-blue {
     top: -190px;
     right: -80px;
-    background: radial-gradient(circle, #7f97ff, #b3c1ff55 45%, transparent 70%);
-    animation: tech-drift 20s ease-in-out infinite alternate;
+    background: radial-gradient(circle, #a987ed, #bfa1ed55 45%, transparent 70%);
+    animation: tech-drift var(--ds-drift, 20s) ease-in-out infinite alternate;
   }
   .tech-gradient-acid {
     bottom: -180px;
@@ -73,7 +73,7 @@
     }
   }
   .circuit-charge {
-    animation: tech-charge 18s linear infinite;
+    animation: tech-charge var(--ds-connection, 18s) linear infinite;
   }
   .circuit-nodes {
     animation: tech-node 6s ease-in-out infinite;
@@ -237,13 +237,13 @@
   input:focus,
   textarea:focus,
   select:focus {
-    border-color: #365bff;
+    border-color: var(--ds-purple, #7042cc);
     box-shadow: 0 0 0 3px #365bff28;
   }
   button:focus-visible,
   a:focus-visible,
   summary:focus-visible {
-    outline: 3px solid #365bff;
+    outline: 3px solid var(--ds-purple, #7042cc);
     outline-offset: 4px;
   }
   .eyebrow {
@@ -258,7 +258,7 @@
   }
   .question-item.active {
     background: #eaf0ff;
-    border-left-color: #365bff;
+    border-left-color: var(--ds-purple, #7042cc);
   }
   .question-number {
     background: #e3e8fb;
@@ -306,7 +306,7 @@
     border-radius: 5px;
     transform: rotate(-2deg);
     box-shadow: 3px 3px 0 #17213e;
-    animation: tech-label 8s ease-in-out infinite;
+    animation: tech-label var(--ds-float, 8s) ease-in-out infinite;
   }
   .answer-controls {
     background: #f1f4ff;
@@ -429,5 +429,83 @@
 @media print {
   .tech-atmosphere {
     display: none !important;
+  }
+}
+
+@media screen {
+  .session-avatar,
+  .answer-empty .eyebrow {
+    background: var(--ds-yellow, #ffe45c);
+  }
+  .panel {
+    border-width: var(--ds-border, 2px);
+  }
+  .button {
+    transition-duration: var(--ds-duration, 180ms);
+    transition-timing-function: var(--ds-easing, cubic-bezier(0.2, 0.8, 0.2, 1));
+  }
+  .button.primary:focus-visible {
+    box-shadow:
+      0 0 0 4px var(--ds-yellow, #ffe45c),
+      5px 5px 0 var(--ds-ink, #171323);
+  }
+  .button.primary:not(:disabled):hover {
+    background: var(--ds-yellow, #ffe45c);
+  }
+  .section-heading h2,
+  .page-heading h1 {
+    font-weight: 600;
+    letter-spacing: -0.6px;
+  }
+  .connection.ready > span {
+    animation: connection-breathe 4s ease-in-out infinite;
+  }
+  .motion-control[aria-pressed='true'] {
+    background: var(--ds-yellow, #ffe45c);
+    color: var(--ds-ink, #171323);
+  }
+  html[data-motion='paused'] .tech-atmosphere *,
+  html[data-motion='paused'] .answer-empty .eyebrow,
+  html[data-motion='paused'] .connection.ready > span {
+    animation-play-state: paused !important;
+  }
+  @keyframes connection-breathe {
+    50% {
+      opacity: 0.5;
+    }
+  }
+  @media (max-width: 700px) {
+    .topbar {
+      gap: 5px;
+      padding-inline: 12px;
+    }
+    .topbar-actions {
+      gap: 5px;
+    }
+    .breadcrumb {
+      gap: 4px;
+      min-width: 0;
+    }
+    .breadcrumb strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tech-circuit .circuit-morph {
+      animation: none;
+    }
+    .button {
+      overflow-wrap: anywhere;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connection.ready > span {
+    animation: none !important;
+  }
+}
+@media screen and (max-width: 700px) {
+  .topbar-actions > .motion-control {
+    display: inline-flex;
   }
 }

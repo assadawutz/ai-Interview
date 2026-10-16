@@ -1,3 +1,4 @@
+import { appConfig } from '../config';
 import { sourceSchema, usageSchema, answerReviewSchema } from '../../shared/contracts';
 import { z } from 'zod';
 import { normalizeGeminiKey } from '../../shared/credentials';
@@ -34,18 +35,42 @@ export function clearGeminiKey() {
   localStorage.removeItem(GEMINI_KEY_STORAGE);
 }
 const LLM_STORAGE = 'interview-pulse:llm-connection';
+const LLM_VAULT = 'interview-pulse:provider-keys:v1';
+export function storedProviderKey(provider: LLMRouting['provider']) {
+  try {
+    return (
+      z.record(z.string(), z.string()).parse(JSON.parse(localStorage.getItem(LLM_VAULT) || '{}'))[
+        provider
+      ] || ''
+    );
+  } catch {
+    return '';
+  }
+}
+export function remembersLLMConnection() {
+  try {
+    return !!localStorage.getItem(LLM_STORAGE);
+  } catch {
+    return false;
+  }
+}
 export function getLLMConnection(): { route: LLMRouting; key: string } {
   try {
-    const value = JSON.parse(sessionStorage.getItem(LLM_STORAGE) || '{}');
+    const value = JSON.parse(
+      sessionStorage.getItem(LLM_STORAGE) || localStorage.getItem(LLM_STORAGE) || '{}',
+    );
     return {
       route: routingSchema.parse(value.route || {}),
-      key: typeof value.key === 'string' ? value.key : '',
+      key:
+        typeof value.key === 'string'
+          ? value.key
+          : storedProviderKey(routingSchema.parse(value.route || {}).provider),
     };
   } catch {
     return { route: defaultRouting, key: '' };
   }
 }
-export function saveLLMConnection(route: LLMRouting, value: string) {
+export function saveLLMConnection(route: LLMRouting, value: string, remember = false) {
   const parsed = routingSchema.parse(route);
   const key = parsed.provider === 'ollama' ? '' : normalizeGeminiKey(value);
   if (
@@ -53,16 +78,34 @@ export function saveLLMConnection(route: LLMRouting, value: string) {
     (!parsed.model || (!key && parsed.provider !== 'ollama'))
   )
     throw new Error('Enter the provider model ID and API key (Ollama does not require a key).');
-  sessionStorage.setItem(LLM_STORAGE, JSON.stringify({ route: parsed, key }));
+  if (remember) {
+    let vault: Record<string, string> = {};
+    try {
+      vault = z
+        .record(z.string(), z.string())
+        .parse(JSON.parse(localStorage.getItem(LLM_VAULT) || '{}'));
+    } catch {
+      /* Recover corrupt credential metadata without discarding the new key. */
+    }
+    localStorage.setItem(LLM_VAULT, JSON.stringify({ ...vault, [parsed.provider]: key }));
+    localStorage.setItem(LLM_STORAGE, JSON.stringify({ route: parsed }));
+    sessionStorage.removeItem(LLM_STORAGE);
+  } else {
+    sessionStorage.setItem(LLM_STORAGE, JSON.stringify({ route: parsed, key }));
+    localStorage.removeItem(LLM_STORAGE);
+    localStorage.removeItem(LLM_VAULT);
+  }
 }
 export function clearLLMConnection() {
   sessionStorage.removeItem(LLM_STORAGE);
+  localStorage.removeItem(LLM_STORAGE);
+  localStorage.removeItem(LLM_VAULT);
 }
 function routingHeaders() {
   const { route, key } = getLLMConnection();
   return { 'X-LLM-Config': JSON.stringify(route), ...(key ? { 'X-LLM-API-Key': key } : {}) };
 }
-let requestTimeoutMs = 75000;
+let requestTimeoutMs = appConfig.timeoutMs;
 export function setRequestTimeoutMs(value?: number) {
   if (value !== undefined && Number.isFinite(value) && value >= 5000 && value <= 300000)
     requestTimeoutMs = value;
@@ -85,6 +128,29 @@ export async function request<T>(
   signal?: AbortSignal,
   extraHeaders?: Record<string, string>,
 ): Promise<T> {
+  if (appConfig.runtime === 'client') {
+    const saved = getLLMConnection();
+    const geminiKey = getGeminiKey();
+    const { ClientRuntime, clientError } = await import('./client-runtime');
+    const connection = {
+      route: extraHeaders?.['X-LLM-Config']
+        ? routingSchema.parse(JSON.parse(extraHeaders['X-LLM-Config']))
+        : saved.route,
+      key: extraHeaders?.['X-LLM-API-Key'] ?? saved.key,
+      geminiKey,
+    };
+    try {
+      return (await new ClientRuntime(connection).request(
+        path,
+        body,
+        signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])
+          : AbortSignal.timeout(requestTimeoutMs),
+      )) as T;
+    } catch (e) {
+      throw clientError(e);
+    }
+  }
   const response = await fetch(`/api/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: { ...headers(), ...extraHeaders },
@@ -186,6 +252,16 @@ export async function streamAnswer(
   receive: (event: StreamEvent) => void,
 ) {
   const timeout = AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]);
+  if (appConfig.runtime === 'client') {
+    const saved = getLLMConnection();
+    const geminiKey = getGeminiKey();
+    const { ClientRuntime, clientError } = await import('./client-runtime');
+    try {
+      return await new ClientRuntime({ ...saved, geminiKey }).stream(body, timeout, receive);
+    } catch (e) {
+      throw clientError(e);
+    }
+  }
   const response = await fetch('/api/analyze-question-stream', {
     method: 'POST',
     headers: headers(),

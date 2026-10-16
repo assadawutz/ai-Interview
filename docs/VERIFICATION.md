@@ -118,3 +118,28 @@ Six existing browser checks were rerun for mobile layout, desktop/Thai PDF,
 accessibility, and provider settings. Manual browser checks confirmed no mobile
 horizontal overflow and no active decorative animations under reduced motion.
 No universal 60 fps guarantee or device-wide performance benchmark is claimed.
+
+## v3 static-client architecture
+
+The default production build now calls providers directly from the browser.
+Shared requests, prompts, free-price selection and evidence checks serve both the
+browser runtime and retained optional Express tooling. Vercel has no app API entry
+point; its deployment contains only static output and hosting security headers.
+
+- 62 unit/API/adapter/quality/client-runtime tests passed.
+- 29 retained legacy integration/browser cases passed after the migration.
+- 7 separate static production browser cases passed, covering five widths (320–1440 px), direct
+  Gemini SDK HTTP streaming plus review, and opt-in provider-key isolation/reset.
+- Normal client flows collect both console errors and uncaught page errors;
+  zero were observed in checked responsive and direct-streaming flows. No console
+  method is suppressed. Genuine provider/network failures may still produce a
+  browser network diagnostic and an actionable UI error.
+- Reduced motion disables decoration, and a persistent Motion FX pause control
+  pauses effects. Tab visibility pauses background effects.
+- Provider SDKs are split into lazy chunks rather than included in core UI startup.
+
+Provider HTTP traffic is intercepted with deterministic fixtures for these tests.
+Live account generation, provider CORS permissions, real microphone recognition,
+local Ollama hardware and universal 60 fps performance remain unverified. AI input
+leaves the device for the selected remote provider; only local Ollama can perform
+model inference on the user's computer. Browser storage is not an encrypted vault.

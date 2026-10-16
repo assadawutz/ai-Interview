@@ -1,0 +1,6 @@
+api
+server
+server.ts
+tests
+.env*
+!.env.example

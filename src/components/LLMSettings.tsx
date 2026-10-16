@@ -1,7 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { Network } from 'lucide-react';
 import { Modal } from './Modal';
-import { getLLMConnection, saveLLMConnection, clearLLMConnection, request } from '../lib/api';
+import {
+  getLLMConnection,
+  saveLLMConnection,
+  clearLLMConnection,
+  request,
+  remembersLLMConnection,
+  storedProviderKey,
+} from '../lib/api';
 import { freeAgentRouting, type LLMRouting } from '../../shared/routing';
 import { agentDefaults } from '../../shared/agents';
 import { normalizeGeminiKey } from '../../shared/credentials';
@@ -19,6 +26,7 @@ export function LLMSettings({
   const t = (th: string, en: string) => (language === 'th' ? th : en);
   const [open, setOpen] = useState(false);
   const [route, setRoute] = useState(() => getLLMConnection().route);
+  const [remember, setRemember] = useState(remembersLLMConnection);
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [models, setModels] = useState<string[]>([]);
@@ -40,6 +48,7 @@ export function LLMSettings({
           className="button"
           onClick={() => {
             const saved = getLLMConnection();
+            setRemember(remembersLLMConnection());
             setRoute(saved.route.model ? saved.route : freeAgentRouting);
             setModels([]);
             setKey(saved.route.model ? saved.key : '');
@@ -64,7 +73,7 @@ export function LLMSettings({
               onSubmit={(e) => {
                 e.preventDefault();
                 try {
-                  saveLLMConnection(route, key);
+                  saveLLMConnection(route, key, remember);
                   lookup.current?.abort();
                   setLoading(false);
                   setOpen(false);
@@ -87,7 +96,7 @@ export function LLMSettings({
                 onClick={() => {
                   lookup.current?.abort();
                   setLoading(false);
-                  if (route.provider !== 'openrouter') setKey('');
+                  if (route.provider !== 'openrouter') setKey(storedProviderKey('openrouter'));
                   setRoute(freeAgentRouting);
                   setModels([]);
                   setError('');
@@ -136,7 +145,7 @@ export function LLMSettings({
                     setModels([]);
                     setError('');
                     if (e.target.checked) {
-                      if (route.provider !== 'openrouter') setKey('');
+                      if (route.provider !== 'openrouter') setKey(storedProviderKey('openrouter'));
                       setRoute(freeAgentRouting);
                     } else setRoute({ ...route, agentMode: false, freeOnly: false });
                   }}
@@ -146,6 +155,7 @@ export function LLMSettings({
               <label>
                 {t('ผู้ให้บริการ', 'Provider')}
                 <select
+                  aria-label={t('ผู้ให้บริการ', 'Provider')}
                   value={route.provider}
                   onChange={(e) => {
                     lookup.current?.abort();
@@ -160,7 +170,7 @@ export function LLMSettings({
                       model: '',
                       primary: e.target.value === 'ollama-cloud' ? 'external' : route.primary,
                     });
-                    setKey('');
+                    setKey(storedProviderKey(e.target.value as LLMRouting['provider']));
                   }}
                 >
                   <option value="ollama-cloud">Ollama Cloud (Vercel)</option>
@@ -319,8 +329,8 @@ export function LLMSettings({
                 <div className="privacy-box">
                   <p>
                     {t(
-                      'ติดตั้งและเปิด Ollama แล้วรันแอปนี้บนเครื่องเดียวกัน ใช้ชื่อโมเดลที่แสดงใน ollama list ไม่ต้องใช้ API key',
-                      'Start Ollama and run this app on the same computer. Use an installed model from ollama list; no API key is needed.',
+                      'เปิด Ollama บนเครื่องนี้ อนุญาต origin ของเว็บด้วย OLLAMA_ORIGINS แล้วเลือกโมเดลจาก ollama list เบราว์เซอร์อาจขอสิทธิ์ Local Network',
+                      'Start Ollama on this computer, allow this site origin with OLLAMA_ORIGINS and select an installed model. Your browser may require Local Network permission.',
                     )}
                   </p>
                   {localSupported === false && (
@@ -342,14 +352,31 @@ export function LLMSettings({
               )}
               <p className="micro muted">
                 {t(
-                  'เก็บการตั้งค่าและ key เฉพาะแท็บนี้ ไม่รวมในไฟล์ส่งออก รองรับข้อความเท่านั้น ไม่รองรับ Google Search เอกสาร และเสียง',
-                  'Saved for this tab only and excluded from exports. Text only; Google Search, documents and audio require Gemini.',
+                  'เก็บ key ในเบราว์เซอร์ แยกจากไฟล์ส่งออก ข้อความส่งตรงให้ผู้ให้บริการที่เลือก การเชื่อมตรงขึ้นกับ CORS ของผู้ให้บริการ',
+                  'Keys stay in browser storage and out of exports. Requests go directly to the selected provider, subject to its CORS policy.',
                 )}
               </p>
               <p className="micro muted">
                 {t(
                   'Routing → Draft → Evidence review: สลับได้ไม่เกินหนึ่งครั้งก่อนเริ่มคำตอบ หากเริ่มตอบแล้วจะไม่ผสมคำตอบจากอีกโมเดล',
                   'Routing → Draft → Evidence review: one failover before answer text begins. Partial answers are never mixed across models.',
+                )}
+              </p>
+              <label className="credential-option">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                />
+                {t(
+                  'จำ key ผู้ให้บริการบนอุปกรณ์นี้ (localStorage)',
+                  'Remember provider keys on this device (localStorage)',
+                )}
+              </label>
+              <p className="micro muted">
+                {t(
+                  'key ใน localStorage ไม่ได้เข้ารหัส สคริปต์ในเว็บและผู้ใช้เครื่องนี้อาจเข้าถึงได้ หลีกเลี่ยงเครื่องสาธารณะ',
+                  'localStorage keys are not encrypted and are accessible to this site’s scripts and device users. Avoid shared devices.',
                 )}
               </p>
               {error && <p role="alert">{error}</p>}

@@ -7,11 +7,12 @@ export default defineConfig({
   reporter: [['list']],
   webServer: [
     {
-      command: 'npm run dev',
+      command: 'npm run dev:server',
       url: 'http://127.0.0.1:3100/api/health',
       reuseExistingServer: false,
       env: {
         PORT: '3100',
+        VITE_RUNTIME_MODE: 'server',
         DISABLE_HMR: 'true',
         HOST: '127.0.0.1',
         GEMINI_API_KEY: '',
@@ -28,6 +29,7 @@ export default defineConfig({
       timeout: 60000,
       env: {
         NODE_ENV: 'production',
+        VITE_RUNTIME_MODE: 'server',
         INTERVIEW_TEST_MODE: '1',
         GEMINI_API_KEY: '',
         APP_ACCESS_TOKEN: '',

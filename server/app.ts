@@ -1,3 +1,13 @@
+import {
+  text,
+  base,
+  practiceBody,
+  evaluation,
+  answerBody,
+  detectBody,
+  chatBody,
+  searchBody,
+} from '../shared/requests.js';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -30,13 +40,10 @@ import {
   type Model,
 } from '@google/genai';
 import {
-  contextSchema,
   languageSchema,
-  speedSchema,
   detectionSchema,
   answerReviewSchema,
   preparationSchema,
-  taskTypeSchema,
   type AnswerReview,
   type Usage,
   sourceSchema,
@@ -60,31 +67,6 @@ class ApiError extends Error {
     super(message);
   }
 }
-const text = (max = 5000) => z.string().trim().min(1).max(max);
-const base = {
-  context: contextSchema.default(() => contextSchema.parse({})),
-  language: languageSchema.default('th'),
-};
-const score = z.number().int().min(0).max(5);
-const evaluation = z.object({
-  feedback: text(10000),
-  scores: z.object({ relevance: score, structure: score, evidence: score, clarity: score }),
-  nextQuestion: text(),
-  strengths: z.array(z.string().max(2000)).max(5).default([]),
-  improvements: z.array(z.string().max(2000)).max(5).default([]),
-  suggestedAnswer: z.string().max(8000).default(''),
-});
-const practiceBody = z.object({
-  ...base,
-  taskType: taskTypeSchema.default('auto'),
-  difficulty: z.enum(['foundation', 'intermediate', 'advanced']).default('intermediate'),
-  question: z.string().max(5000).default(''),
-  answer: z.string().max(10000).default(''),
-  history: z
-    .array(z.object({ question: text(), answer: z.string().max(10000) }))
-    .max(20)
-    .default([]),
-});
 const binary = (allowed: string[]) =>
   z.object({
     data: z
@@ -509,226 +491,199 @@ export function createApp(
       }
     });
   }
-  post(
-    '/api/detect-question',
-    z.object({
-      transcript: text(10000),
-      existingQuestions: z.array(z.string().max(5000)).max(50).default([]),
-      language: languageSchema.default('th'),
-    }),
-    async (data, res, signal) => {
-      const response = await generate(
-        {
-          model: getModels().fast,
-          contents: JSON.stringify(data),
-          config: {
-            systemInstruction: `${safety} Detect substantive interview questions in the transcript. Ignore candidate answers, filler and incomplete fragments. Extract the question in the original language without adding phonetics. Check recent questions for semantic duplicates. Confidence is only question-detection confidence, 0-100.`,
-            responseMimeType: 'application/json',
-            responseJsonSchema: z.toJSONSchema(detectionSchema),
-          },
+  post('/api/detect-question', detectBody, async (data, res, signal) => {
+    const response = await generate(
+      {
+        model: getModels().fast,
+        contents: JSON.stringify(data),
+        config: {
+          systemInstruction: `${safety} Detect substantive interview questions in the transcript. Ignore candidate answers, filler and incomplete fragments. Extract the question in the original language without adding phonetics. Check recent questions for semantic duplicates. Confidence is only question-detection confidence, 0-100.`,
+          responseMimeType: 'application/json',
+          responseJsonSchema: z.toJSONSchema(detectionSchema),
         },
-        signal,
-      );
-      res.json(structured(detectionSchema, response.text));
-    },
-  );
+      },
+      signal,
+    );
+    res.json(structured(detectionSchema, response.text));
+  });
 
-  post(
-    '/api/analyze-question-stream',
-    z.object({
-      ...base,
-      question: text(),
-      speed: speedSchema.default('balanced'),
-      useSearch: z.boolean().default(false),
-      isQuickStudy: z.boolean().default(false),
-      verifyAnswer: z.boolean().default(true),
-      taskType: taskTypeSchema.default('auto'),
-      tone: z.enum(['balanced', 'concise', 'confident']).default('balanced'),
-      pastQAs: z
-        .array(z.object({ question: text(), directAnswer: z.string().max(20000) }))
-        .max(5)
-        .default([]),
-    }),
-    async (data, res, signal) => {
-      getProvider();
-      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-transform');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders();
-      const send = async (event: object) => {
-        if (res.destroyed || signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal });
-      };
-      const heartbeat = setInterval(() => {
-        if (!res.destroyed && !res.writableEnded) res.write(': heartbeat\n\n');
-      }, 15000);
-      const started = Date.now();
-      let receivedText = false;
-      const specialized =
-        requestProvider.getStore()?.plan && needsSpecialist(data.taskType, data.question);
-      let selected = data.useSearch
-        ? config.models[data.speed]
-        : specialized
-          ? getModels().deep
-          : getModels()[data.speed];
-      try {
-        const run = async (model: string) => {
-          await send({ type: 'meta', model });
-          const stream = await getProvider().stream({
-            model,
-            contents: JSON.stringify({ question: data.question, recentAnswers: data.pastQAs }),
-            config: {
-              systemInstruction: coachPrompt(
-                data.context,
-                data.language,
-                data.isQuickStudy,
-                data.tone,
-                data.taskType,
-              ),
-              maxOutputTokens: config.maxOutputTokens,
-              tools: data.useSearch ? [{ googleSearch: {} }] : undefined,
-              abortSignal: signal,
-            },
-          });
-          let usage = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 };
-          let markdown = '',
-            firstTokenMs: number | undefined;
-          let finishReason: string | undefined;
-          const sources = new Map<string, { title: string; uri: string }>();
-          for await (const chunk of stream) {
-            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            if (chunk.text) {
-              receivedText = true;
-              firstTokenMs ??= Date.now() - started;
-              markdown += chunk.text;
-              await send({ type: 'text', text: chunk.text });
-            }
-            finishReason = chunk.candidates?.[0]?.finishReason || finishReason;
-            for (const source of getSources(chunk)) sources.set(source.uri, source);
-            if (chunk.usageMetadata)
-              usage = {
-                inputTokens: chunk.usageMetadata.promptTokenCount || 0,
-                outputTokens: chunk.usageMetadata.candidatesTokenCount || 0,
-                thinkingTokens: chunk.usageMetadata.thoughtsTokenCount || 0,
-              };
+  post('/api/analyze-question-stream', answerBody, async (data, res, signal) => {
+    getProvider();
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const send = async (event: object) => {
+      if (res.destroyed || signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal });
+    };
+    const heartbeat = setInterval(() => {
+      if (!res.destroyed && !res.writableEnded) res.write(': heartbeat\n\n');
+    }, 15000);
+    const started = Date.now();
+    let receivedText = false;
+    const specialized =
+      requestProvider.getStore()?.plan && needsSpecialist(data.taskType, data.question);
+    let selected = data.useSearch
+      ? config.models[data.speed]
+      : specialized
+        ? getModels().deep
+        : getModels()[data.speed];
+    try {
+      const run = async (model: string) => {
+        await send({ type: 'meta', model });
+        const stream = await getProvider().stream({
+          model,
+          contents: JSON.stringify({ question: data.question, recentAnswers: data.pastQAs }),
+          config: {
+            systemInstruction: coachPrompt(
+              data.context,
+              data.language,
+              data.isQuickStudy,
+              data.tone,
+              data.taskType,
+            ),
+            maxOutputTokens: config.maxOutputTokens,
+            tools: data.useSearch ? [{ googleSearch: {} }] : undefined,
+            abortSignal: signal,
+          },
+        });
+        let usage = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0 };
+        let markdown = '',
+          firstTokenMs: number | undefined;
+        let finishReason: string | undefined;
+        const sources = new Map<string, { title: string; uri: string }>();
+        for await (const chunk of stream) {
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          if (chunk.text) {
+            receivedText = true;
+            firstTokenMs ??= Date.now() - started;
+            markdown += chunk.text;
+            await send({ type: 'text', text: chunk.text });
           }
-          if (!receivedText)
-            throw new ApiError(502, 'No answer was returned. Try rephrasing the question.');
-          const sections = answerSections(markdown);
-          const names = sectionHeaders(markdown).map((header) => header.name);
-          if (
-            ['DIRECT_ANSWER', 'HOW_IT_WORKS', 'EXECUTIVE_SUMMARY'].some(
-              (name) => !sections[name],
-            ) ||
-            new Set(names).size !== names.length
-          )
-            throw new ApiError(
-              502,
-              'The AI returned an incomplete or ambiguous answer structure. Please retry.',
-            );
-          if (finishReason && finishReason !== 'STOP')
-            throw new ApiError(
-              502,
-              'The answer was interrupted or reached its output limit. Try Quick study or a narrower question.',
-            );
-          let review: AnswerReview | undefined,
-            reviewModel: string | undefined,
-            reviewUsage: Usage | undefined;
-          let reviewStatus = data.verifyAnswer ? 'pending' : 'skipped';
-          let finalMarkdown: string | undefined;
-          if (data.verifyAnswer) {
-            await send({ type: 'phase', phase: 'review' });
-            try {
-              reviewModel = getModels().review;
-              const reviewSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
-              const response = await generate(
-                {
-                  model: reviewModel,
-                  contents: JSON.stringify({
-                    question: data.question,
-                    context: data.context,
-                    draft: markdown,
-                    sources: [...sources.values()],
-                    language: data.language,
-                  }),
-                  config: {
-                    systemInstruction: `${reviewPrompt} Respond in ${data.language === 'th' ? 'Thai' : 'English'}.`,
-                    responseMimeType: 'application/json',
-                    responseJsonSchema: z.toJSONSchema(answerReviewSchema),
-                  },
-                },
-                reviewSignal,
-                false,
-              );
-              review = checkEvidence(structured(answerReviewSchema, response.text), data.context);
-              reviewUsage = {
-                inputTokens: response.usageMetadata?.promptTokenCount || 0,
-                outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
-                thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
-              };
-              if (review.revisedDirectAnswer.trim())
-                markdown = replaceSection(markdown, 'DIRECT_ANSWER', review.revisedDirectAnswer);
-              if (review.revisedExampleScript.trim())
-                markdown = replaceSection(markdown, 'EXAMPLE_SCRIPT', review.revisedExampleScript);
-              finalMarkdown = markdown;
-              reviewStatus = 'complete';
-            } catch (error) {
-              if (signal.aborted) throw error;
-              reviewStatus = 'unavailable';
-              await send({
-                type: 'notice',
-                message:
-                  'The draft is available, but the AI consistency review could not finish. Check assumptions and evidence before using it.',
-              });
-            }
-          }
-          await send({
-            type: 'done',
-            model,
-            usage,
-            sources: [...sources.values()],
-            firstTokenMs,
-            elapsedMs: Date.now() - started,
-            estimatedCostUsd: estimateCost(model, usage),
-            review,
-            reviewStatus,
-            reviewModel,
-            reviewUsage,
-            reviewCostUsd:
-              reviewModel && reviewUsage ? estimateCost(reviewModel, reviewUsage) : undefined,
-            finalMarkdown,
-          });
-        };
-        try {
-          await run(selected);
-        } catch (error) {
-          const next =
-            !receivedText && !signal.aborted
-              ? fallbackModel(selected, error, {
-                  model: selected,
-                  contents: data.question,
-                  config: { tools: data.useSearch ? [{ googleSearch: {} }] : undefined },
-                })
-              : undefined;
-          if (!next) throw error;
-          selected = next;
-          await send({
-            type: 'notice',
-            message: `Primary model unavailable; routing to ${selected}.`,
-          });
-          await run(selected);
+          finishReason = chunk.candidates?.[0]?.finishReason || finishReason;
+          for (const source of getSources(chunk)) sources.set(source.uri, source);
+          if (chunk.usageMetadata)
+            usage = {
+              inputTokens: chunk.usageMetadata.promptTokenCount || 0,
+              outputTokens: chunk.usageMetadata.candidatesTokenCount || 0,
+              thinkingTokens: chunk.usageMetadata.thoughtsTokenCount || 0,
+            };
         }
-      } catch (error) {
-        if (!res.destroyed)
-          res.write(
-            `data: ${JSON.stringify({ type: 'error', error: publicError(error).message })}\n\n`,
+        if (!receivedText)
+          throw new ApiError(502, 'No answer was returned. Try rephrasing the question.');
+        const sections = answerSections(markdown);
+        const names = sectionHeaders(markdown).map((header) => header.name);
+        if (
+          ['DIRECT_ANSWER', 'HOW_IT_WORKS', 'EXECUTIVE_SUMMARY'].some((name) => !sections[name]) ||
+          new Set(names).size !== names.length
+        )
+          throw new ApiError(
+            502,
+            'The AI returned an incomplete or ambiguous answer structure. Please retry.',
           );
-      } finally {
-        clearInterval(heartbeat);
-        res.end();
+        if (finishReason && finishReason !== 'STOP')
+          throw new ApiError(
+            502,
+            'The answer was interrupted or reached its output limit. Try Quick study or a narrower question.',
+          );
+        let review: AnswerReview | undefined,
+          reviewModel: string | undefined,
+          reviewUsage: Usage | undefined;
+        let reviewStatus = data.verifyAnswer ? 'pending' : 'skipped';
+        let finalMarkdown: string | undefined;
+        if (data.verifyAnswer) {
+          await send({ type: 'phase', phase: 'review' });
+          try {
+            reviewModel = getModels().review;
+            const reviewSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
+            const response = await generate(
+              {
+                model: reviewModel,
+                contents: JSON.stringify({
+                  question: data.question,
+                  context: data.context,
+                  draft: markdown,
+                  sources: [...sources.values()],
+                  language: data.language,
+                }),
+                config: {
+                  systemInstruction: `${reviewPrompt} Respond in ${data.language === 'th' ? 'Thai' : 'English'}.`,
+                  responseMimeType: 'application/json',
+                  responseJsonSchema: z.toJSONSchema(answerReviewSchema),
+                },
+              },
+              reviewSignal,
+              false,
+            );
+            review = checkEvidence(structured(answerReviewSchema, response.text), data.context);
+            reviewUsage = {
+              inputTokens: response.usageMetadata?.promptTokenCount || 0,
+              outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+              thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+            };
+            if (review.revisedDirectAnswer.trim())
+              markdown = replaceSection(markdown, 'DIRECT_ANSWER', review.revisedDirectAnswer);
+            if (review.revisedExampleScript.trim())
+              markdown = replaceSection(markdown, 'EXAMPLE_SCRIPT', review.revisedExampleScript);
+            finalMarkdown = markdown;
+            reviewStatus = 'complete';
+          } catch (error) {
+            if (signal.aborted) throw error;
+            reviewStatus = 'unavailable';
+            await send({
+              type: 'notice',
+              message:
+                'The draft is available, but the AI consistency review could not finish. Check assumptions and evidence before using it.',
+            });
+          }
+        }
+        await send({
+          type: 'done',
+          model,
+          usage,
+          sources: [...sources.values()],
+          firstTokenMs,
+          elapsedMs: Date.now() - started,
+          estimatedCostUsd: estimateCost(model, usage),
+          review,
+          reviewStatus,
+          reviewModel,
+          reviewUsage,
+          reviewCostUsd:
+            reviewModel && reviewUsage ? estimateCost(reviewModel, reviewUsage) : undefined,
+          finalMarkdown,
+        });
+      };
+      try {
+        await run(selected);
+      } catch (error) {
+        const next =
+          !receivedText && !signal.aborted
+            ? fallbackModel(selected, error, {
+                model: selected,
+                contents: data.question,
+                config: { tools: data.useSearch ? [{ googleSearch: {} }] : undefined },
+              })
+            : undefined;
+        if (!next) throw error;
+        selected = next;
+        await send({
+          type: 'notice',
+          message: `Primary model unavailable; routing to ${selected}.`,
+        });
+        await run(selected);
       }
-    },
-  );
+    } catch (error) {
+      if (!res.destroyed)
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: publicError(error).message })}\n\n`,
+        );
+    } finally {
+      clearInterval(heartbeat);
+      res.end();
+    }
+  });
 
   post('/api/preparation-plan', z.object(base), async (data, res, signal) => {
     const response = await generate(
@@ -788,56 +743,36 @@ export function createApp(
     res.json({ checkedAt: new Date().toISOString(), models: results });
   });
 
-  post(
-    '/api/search-company-intel',
-    z.object({
-      ...base,
-      companyName: text(200),
-      companyWebsiteUrl: z.string().max(2000).default(''),
-      companyLinkedInUrl: z.string().max(2000).default(''),
-    }),
-    async (data, res, signal) => {
-      const response = await generate(
-        {
-          model: config.models.balanced,
-          contents: JSON.stringify(data),
-          config: {
-            systemInstruction: `${safety} Research this company using web search. Respond in ${data.language === 'en' ? 'English' : 'Thai'}. Summarize products, recent dated news, hiring priorities and 3 useful questions to ask. Distinguish verified facts from inference. Do not imply access to private LinkedIn data.`,
-            tools: [{ googleSearch: {} }],
-          },
+  post('/api/search-company-intel', searchBody, async (data, res, signal) => {
+    const response = await generate(
+      {
+        model: config.models.balanced,
+        contents: JSON.stringify(data),
+        config: {
+          systemInstruction: `${safety} Research this company using web search. Respond in ${data.language === 'en' ? 'English' : 'Thai'}. Summarize products, recent dated news, hiring priorities and 3 useful questions to ask. Distinguish verified facts from inference. Do not imply access to private LinkedIn data.`,
+          tools: [{ googleSearch: {} }],
         },
-        signal,
-      );
-      res.json({ text: response.text || '', sources: getSources(response) });
-    },
-  );
-  post(
-    '/api/copilot-chat',
-    z.object({
-      ...base,
-      activeQuestion: z.string().max(5000).default(''),
-      messages: z
-        .array(z.object({ role: z.enum(['user', 'assistant']), text: text(10000) }))
-        .min(1)
-        .max(20),
-    }),
-    async (data, res, signal) => {
-      const response = await generate(
-        {
-          model: getModels().balanced,
-          contents: data.messages.map((m) => ({
-            role: m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: m.text }],
-          })),
-          config: {
-            systemInstruction: `${safety} Answer interview follow-ups concisely in ${data.language === 'en' ? 'English' : 'Thai'}. Context data: ${JSON.stringify(data.context)}. Current question: ${JSON.stringify(data.activeQuestion)}`,
-          },
+      },
+      signal,
+    );
+    res.json({ text: response.text || '', sources: getSources(response) });
+  });
+  post('/api/copilot-chat', chatBody, async (data, res, signal) => {
+    const response = await generate(
+      {
+        model: getModels().balanced,
+        contents: data.messages.map((m) => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.text }],
+        })),
+        config: {
+          systemInstruction: `${safety} Answer interview follow-ups concisely in ${data.language === 'en' ? 'English' : 'Thai'}. Context data: ${JSON.stringify(data.context)}. Current question: ${JSON.stringify(data.activeQuestion)}`,
         },
-        signal,
-      );
-      res.json({ reply: response.text || '' });
-    },
-  );
+      },
+      signal,
+    );
+    res.json({ reply: response.text || '' });
+  });
   post('/api/practice', practiceBody, async (data, res, signal) => {
     if (data.question && !data.answer.trim())
       throw new ApiError(400, 'Provide your answer before requesting feedback.');

@@ -1,3 +1,4 @@
+import { MotionControl } from './components/MotionControl';
 import { TechAtmosphere } from './components/TechAtmosphere';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -45,6 +46,7 @@ import {
   setRequestTimeoutMs,
   clearGeminiKey,
   clearLLMConnection,
+  getLLMConnection,
 } from './lib/api';
 import {
   clearAll,
@@ -187,7 +189,7 @@ export default function App() {
       setRequestTimeoutMs(status.requestTimeoutMs);
     } catch {
       setHealth(null);
-      notify('Server unavailable. Check the server and network connection.');
+      notify('Unable to check AI configuration. Review provider settings and network access.');
     }
   }, [notify]);
   useEffect(() => {
@@ -406,7 +408,9 @@ export default function App() {
         Math.floor((now - Math.min(...interview.questions.map((q) => q.detectedAt))) / 1000),
       )
     : 0;
-  const canAI = !offline && !!health?.hasApiKey;
+  const selectedRoute = getLLMConnection().route;
+  const localAI = selectedRoute.provider === 'ollama' && selectedRoute.primary === 'external';
+  const canAI = (!offline || localAI) && !!health?.hasApiKey;
   const nav = [
     { id: 'workspace' as const, icon: LayoutDashboard, label: t('พื้นที่เตรียมตัว', 'Workspace') },
     { id: 'practice' as const, icon: GraduationCap, label: t('ซ้อมสัมภาษณ์', 'Practice') },
@@ -444,6 +448,7 @@ export default function App() {
               <button
                 key={item.id}
                 className={`nav-item ${tab === item.id ? 'selected' : ''}`}
+                aria-label={item.label}
                 aria-current={tab === item.id ? 'page' : undefined}
                 onClick={() => setTab(item.id)}
               >
@@ -489,6 +494,7 @@ export default function App() {
               <strong>{nav.find((item) => item.id === tab)?.label}</strong>
             </div>
             <div className="topbar-actions">
+              <MotionControl language={language} />
               <span className={`connection ${canAI ? 'ready' : ''}`}>
                 <span />
                 {canAI
@@ -517,7 +523,7 @@ export default function App() {
               </button>
             </div>
           </header>
-          {offline && (
+          {offline && !localAI && (
             <div className="offline-banner" role="status">
               <WifiOff size={15} />
               {t(
@@ -583,8 +589,8 @@ export default function App() {
                     <Sparkles size={18} />
                     <span>
                       {t(
-                        'เพิ่ม Gemini API key ในหน้าตั้งค่าเพื่อเริ่มใช้งาน AI',
-                        'Add your Gemini API key in Settings to enable AI coaching.',
+                        'เพิ่ม Gemini key หรือเลือก LLM ในหน้าระบบเพื่อเริ่มใช้ AI',
+                        'Connect Gemini or configure an LLM in System to enable AI coaching.',
                       )}
                     </span>
                   </div>
@@ -1139,8 +1145,8 @@ export default function App() {
                 <ShieldCheck size={13} />
                 <span>
                   {t(
-                    'ประวัติเก็บในเบราว์เซอร์ · ข้อความและเสียงที่ใช้ AI จะส่งให้ Gemini',
-                    'History stays in your browser · AI requests send content to Gemini',
+                    'ประวัติเก็บในเบราว์เซอร์ · ข้อมูลที่ใช้กับ AI ส่งตรงให้ผู้ให้บริการที่เลือก',
+                    'History stays in your browser · AI input goes directly to your selected provider',
                   )}
                 </span>
                 <button className="text-button" onClick={() => setShowHelp(true)}>
@@ -1360,8 +1366,8 @@ export default function App() {
             </ol>
             <p className="privacy-note">
               {t(
-                'ข้อมูลที่ส่งวิเคราะห์จะถูกประมวลผลโดย Gemini ไม่มีการรับประกันผลสัมภาษณ์ ค่าใช้จ่ายขึ้นกับบัญชีผู้ให้บริการ',
-                'AI content is processed by Gemini. Coaching does not guarantee interview outcomes. Provider usage may incur charges.',
+                'ข้อมูล AI ประมวลผลโดยผู้ให้บริการที่เลือก ไม่ใช่ทุกอย่างอยู่บนเครื่อง ไม่มีการรับประกันผลสัมภาษณ์ ค่าใช้จ่ายขึ้นกับบัญชี',
+                'AI input is processed by your selected provider, not necessarily on-device. Coaching cannot guarantee interview outcomes. Provider usage may incur charges.',
               )}
             </p>
             <p className="micro muted">Focus shortcut: Alt + Shift + F</p>

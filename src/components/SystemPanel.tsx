@@ -1,3 +1,4 @@
+import { appConfig } from '../config';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, KeyRound, Settings2, CheckCircle2, ExternalLink } from 'lucide-react';
 import type { Health } from '../../shared/contracts';
@@ -54,7 +55,11 @@ export function SystemPanel({
       <div className="system-checks">
         <div>
           <span className={`system-dot ${health ? 'good' : ''}`} />
-          <strong>{t('เซิร์ฟเวอร์', 'Server')}</strong>
+          <strong>
+            {appConfig.runtime === 'client'
+              ? t('รันไทม์เบราว์เซอร์', 'Browser runtime')
+              : t('เซิร์ฟเวอร์', 'Server')}
+          </strong>
           <span>
             {health ? t('เชื่อมต่อแล้ว', 'Connected') : t('เชื่อมต่อไม่ได้', 'Unavailable')}
           </span>
@@ -170,8 +175,8 @@ export function SystemPanel({
           >
             <p>
               {t(
-                'Key จะถูกส่งผ่าน HTTPS ไปยังเซิร์ฟเวอร์แอปนี้และ Google เพื่อเรียก AI ไม่ถูกบันทึกบนเซิร์ฟเวอร์หรือรวมในไฟล์ส่งออก',
-                'Your key is sent over HTTPS to this app’s server and Google for AI requests. It is not stored on the server or included in exports.',
+                'โหมด client ส่ง key และข้อมูลที่เกี่ยวข้องตรงไปยัง Google ไม่มีเซิร์ฟเวอร์แอปเก็บข้อมูล key ไม่รวมในไฟล์ส่งออก หากเปิดจำ key จะใช้ localStorage ที่ไม่ได้เข้ารหัส',
+                'Client mode sends the key and relevant input directly to Google. No app backend stores them. Keys are excluded from exports; remembered keys use unencrypted localStorage.',
               )}
             </p>
             <label htmlFor="gemini-api-key">Gemini API key</label>
@@ -231,6 +236,7 @@ export function SystemPanel({
       {health?.requiresAccessToken && (
         <form
           className="token-form"
+          hidden={appConfig.runtime === 'client'}
           onSubmit={(e) => {
             e.preventDefault();
             setAccessToken(token.trim());
