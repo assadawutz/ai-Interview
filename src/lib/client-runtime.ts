@@ -1,7 +1,12 @@
 import { type GenerateContentParameters, type GenerateContentResponse } from '@google/genai';
 import { z } from 'zod';
 import { appConfig } from '../config';
-import { buildAgentPlan, freeTextModels, type CatalogModel } from '../../shared/free-models';
+import {
+  buildAgentPlan,
+  freeTextModels,
+  parseCatalog,
+  type CatalogModel,
+} from '../../shared/free-models';
 import { needsSpecialist, type AgentPlan } from '../../shared/agents';
 import { routingSchema, type LLMRouting } from '../../shared/routing';
 import { resolveCapabilities } from '../../shared/capabilities';
@@ -84,21 +89,7 @@ async function catalog(signal: AbortSignal) {
       });
       if (!response.ok)
         throw new RuntimeError('Free model catalog unavailable. Paid fallback is disabled.');
-      const result = await response.json();
-      const data = z
-        .object({
-          data: z.array(
-            z.object({
-              id: z.string(),
-              pricing: z.record(z.string(), z.string()).optional(),
-              supported_parameters: z.array(z.string()).optional(),
-              architecture: z
-                .object({ output_modalities: z.array(z.string()).optional() })
-                .optional(),
-            }),
-          ),
-        })
-        .parse(result).data;
+      const data = parseCatalog(await response.json());
       buildAgentPlan(data);
       catalogCache = { data, until: Date.now() + 300000 };
       return data;

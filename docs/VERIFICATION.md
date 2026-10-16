@@ -126,7 +126,7 @@ Shared requests, prompts, free-price selection and evidence checks serve both th
 browser runtime and retained optional Express tooling. Vercel has no app API entry
 point; its deployment contains only static output and hosting security headers.
 
-- 62 unit/API/adapter/quality/client-runtime tests passed.
+- 63 unit/API/adapter/quality/client-runtime tests passed.
 - 29 retained legacy integration/browser cases passed after the migration.
 - 7 separate static production browser cases passed, covering five widths (320–1440 px), direct
   Gemini SDK HTTP streaming plus review, and opt-in provider-key isolation/reset.
@@ -143,3 +143,7 @@ Live account generation, provider CORS permissions, real microphone recognition,
 local Ollama hardware and universal 60 fps performance remain unverified. AI input
 leaves the device for the selected remote provider; only local Ollama can perform
 model inference on the user's computer. Browser storage is not an encrypted vault.
+
+The live OpenRouter catalog includes nested tier-pricing overrides. Model records
+are validated individually; any nonzero text tier or cache price is excluded from
+free-only routing. A regression covers nested metadata and chargeable tiers.
