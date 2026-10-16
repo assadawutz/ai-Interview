@@ -5,6 +5,7 @@ import '@fontsource/noto-sans-thai/400.css';
 import '@fontsource/noto-sans-thai/500.css';
 import '@fontsource/noto-sans-thai/600.css';
 import './index.css';
+import './tech-theme.css';
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>

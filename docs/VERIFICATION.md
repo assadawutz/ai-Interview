@@ -103,3 +103,18 @@ unavailable; recording cannot silently switch to Gemini under a free-only policy
 Copilot requests are canceled and cleared when the active question, profile or
 language changes. Model lookup is canceled on provider changes, modal close and
 reset. These checks do not verify real microphone hardware or live inference.
+
+## Neon glass visual system
+
+The interface uses translucent light surfaces, acid-lime actions, electric-blue
+accents, thick dark borders and offset shadows. System labels and counters use a
+local monospace stack; Thai body text retains the bundled Noto Sans Thai font.
+Decorative SVG paths, node highlights, gradients and floating labels use CSS
+animation with no JavaScript animation loop or new animation dependency. Reduced
+motion disables decorative animation; print hides the vector layer and retains
+the existing report styling. Mobile uses smaller static gradient layers.
+
+Six existing browser checks were rerun for mobile layout, desktop/Thai PDF,
+accessibility, and provider settings. Manual browser checks confirmed no mobile
+horizontal overflow and no active decorative animations under reduced motion.
+No universal 60 fps guarantee or device-wide performance benchmark is claimed.

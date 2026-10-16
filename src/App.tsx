@@ -1,3 +1,4 @@
+import { TechAtmosphere } from './components/TechAtmosphere';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -481,6 +482,7 @@ export default function App() {
           </div>
         </aside>
         <div className="main-shell">
+          <TechAtmosphere />
           <header className="topbar">
             <div className="breadcrumb">
               Interview Pulse <ChevronRight size={13} />
