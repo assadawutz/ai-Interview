@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { externalProvider, ollamaDeploymentSupported, listExternalModels } from '../server/llm';
+import { externalProvider, listExternalModels } from '../shared/llm';
 import { routingSchema } from '../shared/routing';
 const route = routingSchema.parse({
   provider: 'ollama',
@@ -101,16 +101,6 @@ test('external adapter rejects documents and Google tools before making network 
     }),
   );
   assert.equal(calls, 0);
-});
-
-test('cloud deployments do not mistake a localhost Ollama URL for a reachable user computer', () => {
-  assert.equal(ollamaDeploymentSupported('1', undefined), false);
-  assert.equal(ollamaDeploymentSupported('1', 'http://127.0.0.1:11434'), false);
-  assert.equal(ollamaDeploymentSupported('1', 'http://localhost:11434'), false);
-  assert.equal(ollamaDeploymentSupported('1', 'http://[::1]:11434'), false);
-  assert.equal(ollamaDeploymentSupported('1', 'file:///etc/passwd'), false);
-  assert.equal(ollamaDeploymentSupported('1', 'https://trusted-ollama.example'), true);
-  assert.equal(ollamaDeploymentSupported(undefined, undefined), true);
 });
 
 test('Ollama Cloud uses the HTTPS cloud endpoint and its own provider credential', async () => {

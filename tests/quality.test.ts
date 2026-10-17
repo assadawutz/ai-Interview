@@ -7,7 +7,7 @@ import {
   defaultSettings,
   sessionSchema,
 } from '../shared/contracts';
-import { checkEvidence, checkPreparation, replaceSection } from '../server/quality';
+import { checkEvidence, checkPreparation, replaceSection } from '../shared/quality';
 import { answerFingerprint } from '../shared/fingerprint';
 const context = contextSchema.parse({
   resume: 'I led a TypeScript migration with two teams.',

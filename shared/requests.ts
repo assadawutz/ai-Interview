@@ -5,26 +5,6 @@ export const base = {
   context: contextSchema.default(() => contextSchema.parse({})),
   language: languageSchema.default('th'),
 };
-const score = z.number().int().min(0).max(5);
-export const evaluation = z.object({
-  feedback: text(10000),
-  scores: z.object({ relevance: score, structure: score, evidence: score, clarity: score }),
-  nextQuestion: text(),
-  strengths: z.array(z.string().max(2000)).max(5).default([]),
-  improvements: z.array(z.string().max(2000)).max(5).default([]),
-  suggestedAnswer: z.string().max(8000).default(''),
-});
-export const practiceBody = z.object({
-  ...base,
-  taskType: taskTypeSchema.default('auto'),
-  difficulty: z.enum(['foundation', 'intermediate', 'advanced']).default('intermediate'),
-  question: z.string().max(5000).default(''),
-  answer: z.string().max(10000).default(''),
-  history: z
-    .array(z.object({ question: text(), answer: z.string().max(10000) }))
-    .max(20)
-    .default([]),
-});
 export const answerBody = z.object({
   ...base,
   question: text(),
@@ -43,14 +23,6 @@ export const detectBody = z.object({
   transcript: text(10000),
   existingQuestions: z.array(z.string().max(5000)).max(50).default([]),
   language: languageSchema.default('th'),
-});
-export const chatBody = z.object({
-  ...base,
-  activeQuestion: z.string().max(5000).default(''),
-  messages: z
-    .array(z.object({ role: z.enum(['user', 'assistant']), text: text(10000) }))
-    .min(1)
-    .max(20),
 });
 export const searchBody = z.object({
   ...base,

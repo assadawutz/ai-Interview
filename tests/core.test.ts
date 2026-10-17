@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { answerSchema, contextSchema, sessionSchema, defaultSettings } from '../shared/contracts';
 import { parseStreamedAnswer, isDuplicateQuestion } from '../src/utils/answerParser';
-import { readEvents } from '../src/lib/api';
 import {
   loadDraft,
   loadSessions,
@@ -13,7 +12,6 @@ import {
   parseSession,
   migrateLegacy,
 } from '../src/lib/storage';
-import { audioToWav } from '../server/audio';
 
 const base = answerSchema.parse({
   id: 'a',
@@ -57,19 +55,6 @@ class MemoryStorage implements Storage {
     this.map.set(key, value);
   }
 }
-function streamResponse(parts: string[]) {
-  const bytes = new TextEncoder().encode(parts.join(''));
-  return new Response(
-    new ReadableStream({
-      start(controller) {
-        // Deliberately split Thai UTF-8 bytes and SSE field boundaries.
-        for (let i = 0; i < bytes.length; i += 3) controller.enqueue(bytes.slice(i, i + 3));
-        controller.close();
-      },
-    }),
-    { headers: { 'Content-Type': 'text/event-stream' } },
-  );
-}
 test('parsed risk and summary override placeholder values; partial sections stay readable', () => {
   const answer = parseStreamedAnswer(
     '# [DIRECT_ANSWER]\nจริง\n# [RISK_LEVEL]\nHIGH\n# [RISK_SUMMARY]\nWatch out\n# [EXECUTIVE_SUMMARY]\nSummary',
@@ -86,32 +71,6 @@ test('duplicate filter does not collapse a distinct follow-up that contains the 
   assert.equal(
     isDuplicateQuestion('What is React?', 'What is React and how does its reconciliation work?'),
     false,
-  );
-});
-test('SSE handles CRLF and split Thai characters, and completes only on done', async () => {
-  const events: string[] = [];
-  await readEvents(
-    streamResponse([
-      ': heartbeat\r\n\r\n',
-      'data: {"type":"text","text":"สวัสดี"}\r\n\r\n',
-      'data: {"type":"done","model":"test","usage":{"inputTokens":2,"outputTokens":3,"thinkingTokens":0},"sources":[],"elapsedMs":1}\r\n\r\n',
-    ]),
-    (event) => events.push(event.type === 'text' ? event.text : event.type),
-  );
-  assert.deepEqual(events, ['สวัสดี', 'done']);
-});
-test('SSE errors and truncated streams never count as completed answers', async () => {
-  await assert.rejects(
-    readEvents(streamResponse(['data: {"type":"error","error":"Quota exceeded"}\n\n']), () => {}),
-    /Quota exceeded/,
-  );
-  await assert.rejects(
-    readEvents(streamResponse(['data: {"type":"text","text":"partial"}\n\n']), () => {}),
-    /before the answer completed/,
-  );
-  await assert.rejects(
-    readEvents(new Response('{"error":"Missing key"}', { status: 503 }), () => {}),
-    /Missing key/,
   );
 });
 test('expired sessions and drafts are physically removed from browser storage', () => {
@@ -138,19 +97,6 @@ test('privacy wipe removes current and legacy session stores only', () => {
   clearAll(storage);
   assert.equal(storage.length, 1);
   assert.equal(storage.getItem('unrelated'), 'data');
-});
-test('raw Gemini PCM is wrapped in a valid mono WAV container', () => {
-  const result = audioToWav(
-    Buffer.from([0, 0, 127, 0]).toString('base64'),
-    'audio/L16;codec=pcm;rate=24000',
-  );
-  const bytes = Buffer.from(result.audio, 'base64');
-  assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
-  assert.equal(bytes.readUInt32LE(24), 24000);
-  assert.equal(bytes.readUInt16LE(22), 1);
-  assert.equal(bytes.readUInt32LE(40), 4);
-  assert.equal(bytes.length, 48);
-  assert.throws(() => audioToWav('AAAA', 'text/plain'), /Unsupported/);
 });
 
 test('legacy migration preserves candidate facts and normalizes category/state', () => {

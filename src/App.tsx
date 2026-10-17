@@ -1,5 +1,3 @@
-import { MotionControl } from './components/MotionControl';
-import { TechAtmosphere } from './components/TechAtmosphere';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -8,19 +6,16 @@ import {
   AudioLines,
   BookOpen,
   BriefcaseBusiness,
-  Check,
   ChevronRight,
   CircleHelp,
   Download,
   Focus,
-  GraduationCap,
   Headphones,
   LayoutDashboard,
   LoaderCircle,
   Mic,
   Plus,
   Settings2,
-  Target,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -42,7 +37,6 @@ import {
 import {
   request,
   downloadJson,
-  setAccessToken,
   setRequestTimeoutMs,
   clearGeminiKey,
   clearLLMConnection,
@@ -65,12 +59,9 @@ import { AnswerCard } from './components/AnswerCard';
 import { ProfilePanel } from './components/ProfilePanel';
 import { SessionsPanel } from './components/SessionsPanel';
 import { SystemPanel } from './components/SystemPanel';
-import { PracticePanel } from './components/PracticePanel';
-import { Copilot } from './components/Copilot';
-import { PreparationPanel } from './components/PreparationPanel';
 import { Modal } from './components/Modal';
 
-type Tab = 'workspace' | 'practice' | 'profile' | 'sessions' | 'system' | 'preparation';
+type Tab = 'workspace' | 'profile' | 'sessions' | 'system';
 function readInitial() {
   try {
     const sessions = loadSessions(localStorage),
@@ -133,8 +124,7 @@ export default function App() {
     [showHelp, setShowHelp] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]),
     [offline, setOffline] = useState(!navigator.onLine);
-  const [saveStatus, setSaveStatus] = useState(''),
-    [now, setNow] = useState(Date.now());
+  const [saveStatus, setSaveStatus] = useState('');
   const language = settings.language;
   const t = (th: string, en: string) => (language === 'th' ? th : en);
   const notify = useCallback((message: string) => setNotice(message), []);
@@ -217,12 +207,10 @@ export default function App() {
       }
     };
     window.addEventListener('keydown', keydown);
-    const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       window.removeEventListener('online', online);
       window.removeEventListener('offline', online);
       window.removeEventListener('keydown', keydown);
-      clearInterval(clock);
     };
   }, []);
   const latestSnapshot = useRef(snapshot);
@@ -358,7 +346,6 @@ export default function App() {
     if (wipe) {
       try {
         clearAll(localStorage);
-        setAccessToken('');
         clearGeminiKey();
         clearLLMConnection();
         void refreshHealth();
@@ -393,28 +380,11 @@ export default function App() {
   const visible = interview.questions.filter(
     (q) => q.status !== 'dismissed' && q.text.toLowerCase().includes(filter.toLowerCase()),
   );
-  const tokens = interview.answers.reduce(
-    (sum, a) =>
-      sum +
-      (a.usage ? a.usage.inputTokens + a.usage.outputTokens + a.usage.thinkingTokens : 0) +
-      (a.reviewUsage
-        ? a.reviewUsage.inputTokens + a.reviewUsage.outputTokens + a.reviewUsage.thinkingTokens
-        : 0),
-    0,
-  );
-  const elapsed = interview.questions.length
-    ? Math.max(
-        0,
-        Math.floor((now - Math.min(...interview.questions.map((q) => q.detectedAt))) / 1000),
-      )
-    : 0;
   const selectedRoute = getLLMConnection().route;
   const localAI = selectedRoute.provider === 'ollama' && selectedRoute.primary === 'external';
   const canAI = (!offline || localAI) && !!health?.hasApiKey;
   const nav = [
     { id: 'workspace' as const, icon: LayoutDashboard, label: t('พื้นที่เตรียมตัว', 'Workspace') },
-    { id: 'practice' as const, icon: GraduationCap, label: t('ซ้อมสัมภาษณ์', 'Practice') },
-    { id: 'preparation' as const, icon: Target, label: t('แผนเตรียมตัว', 'Role-fit plan') },
     { id: 'profile' as const, icon: BriefcaseBusiness, label: t('โปรไฟล์ของฉัน', 'My profile') },
     { id: 'sessions' as const, icon: Archive, label: t('ประวัติเซสชัน', 'Sessions') },
     { id: 'system' as const, icon: Settings2, label: t('สถานะระบบ', 'System') },
@@ -442,7 +412,7 @@ export default function App() {
               <small>YOUR INTERVIEW COMPANION</small>
             </span>
           </a>
-          <div className="sidebar-section">PREPARE WITH PURPOSE</div>
+          <div className="sidebar-section"></div>
           <nav aria-label={t('เมนูหลัก', 'Main navigation')}>
             {nav.map((item) => (
               <button
@@ -458,43 +428,14 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <div className="sidebar-tip">
-            <div className="tip-icon">
-              <Sparkles size={20} />
-            </div>
-            <h3>{t('เริ่มจากเรื่องจริงของคุณ', 'Make it your story.')}</h3>
-            <p>
-              {t(
-                'เพิ่มโปรไฟล์เพื่อให้ทุกคำตอบสะท้อนประสบการณ์ของคุณ',
-                'Add your profile for answers that reflect your experience.',
-              )}
-            </p>
-            <button onClick={() => setTab('profile')}>
-              {t('ปรับโปรไฟล์', 'Build your profile')}
-              <ArrowRight size={14} />
-            </button>
-          </div>
-          <div className="sidebar-footer">
-            <ShieldCheck size={15} />
-            <span>{t('ประวัติเก็บในเบราว์เซอร์', 'History saved locally')}</span>
-            <button
-              className="icon-button"
-              onClick={() => setShowHelp(true)}
-              aria-label={t('วิธีใช้งาน', 'Help')}
-            >
-              <CircleHelp size={16} />
-            </button>
-          </div>
         </aside>
         <div className="main-shell">
-          <TechAtmosphere />
           <header className="topbar">
             <div className="breadcrumb">
               Interview Pulse <ChevronRight size={13} />
               <strong>{nav.find((item) => item.id === tab)?.label}</strong>
             </div>
             <div className="topbar-actions">
-              <MotionControl language={language} />
               <span className={`connection ${canAI ? 'ready' : ''}`}>
                 <span />
                 {canAI
@@ -549,15 +490,13 @@ export default function App() {
               <div className="page-heading">
                 <div>
                   <div className="eyebrow">
-                    <span className="tiny-line" /> YOUR NEXT CHAPTER STARTS HERE
+                    <span className="tiny-line" /> INTERVIEW WORKSPACE
                   </div>
-                  <h1>
-                    {t('เตรียมพร้อม ตอบอย่างเป็นตัวคุณ', 'Your experience. Clearly expressed.')}
-                  </h1>
+                  <h1>{t('ถามให้ชัด ตอบให้ตรง', 'A clearer answer starts here.')}</h1>
                   <p>
                     {t(
-                      'ฟังให้เข้าใจ จัดระเบียบความคิด แล้วเล่าเรื่องของคุณให้ชัดเจน',
-                      'Find your words, organize your thoughts, and tell your story with clarity.',
+                      'ใส่คำถาม รับแนวทางตอบ และตรวจสอบกับประสบการณ์จริงของคุณ',
+                      'Ask a question. Get a grounded answer. Make it yours.',
                     )}
                   </p>
                 </div>
@@ -620,25 +559,6 @@ export default function App() {
                   <button className="text-button" onClick={() => setTab('profile')}>
                     {t('แก้ไข', 'Edit')}
                   </button>
-                </div>
-                <div className="session-stats">
-                  <div>
-                    <strong>{interview.answers.length.toString().padStart(2, '0')}</strong>
-                    <span>{t('คำตอบ', 'Answers')}</span>
-                  </div>
-                  <div>
-                    <strong>{queued.length.toString().padStart(2, '0')}</strong>
-                    <span>{t('รอคิว', 'Queued')}</span>
-                  </div>
-                  <div>
-                    <strong>
-                      {Math.floor(elapsed / 60)
-                        .toString()
-                        .padStart(2, '0')}
-                      :{(elapsed % 60).toString().padStart(2, '0')}
-                    </strong>
-                    <span>{t('เวลาตั้งแต่คำถามแรก', 'Since first question')}</span>
-                  </div>
                 </div>
               </div>
               <div className="workspace-grid">
@@ -880,89 +800,92 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                  <div className="answer-controls">
-                    <div
-                      className="segmented"
-                      aria-label={t('ระดับการวิเคราะห์', 'Analysis depth')}
-                    >
-                      {(
-                        [
-                          { id: 'fast', label: t('เร็ว', 'Fast') },
-                          { id: 'balanced', label: t('สมดุล', 'Balanced') },
-                          { id: 'deep', label: t('ละเอียด', 'Deep') },
-                        ] as const
-                      ).map((option) => (
-                        <button
-                          key={option.id}
-                          aria-pressed={settings.speed === option.id}
-                          className={settings.speed === option.id ? 'selected' : ''}
-                          onClick={() => updateSettings({ ...settings, speed: option.id })}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="control-toggles">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={settings.useSearch}
-                          disabled={health?.capabilities?.search === false}
-                          onChange={(e) =>
-                            updateSettings({ ...settings, useSearch: e.target.checked })
-                          }
-                        />
-                        {t('ค้นเว็บ', 'Web search')}
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={settings.quickStudy}
-                          onChange={(e) =>
-                            updateSettings({ ...settings, quickStudy: e.target.checked })
-                          }
-                        />
-                        {t('สรุปสั้น', 'Quick study')}
-                      </label>
-                    </div>
-                  </div>
-                  <div className="quality-controls">
-                    <label>
-                      {t('ประเภทโจทย์', 'Question type')}
-                      <select
-                        value={settings.taskType}
-                        onChange={(e) =>
-                          updateSettings({
-                            ...settings,
-                            taskType: e.target.value as Settings['taskType'],
-                          })
-                        }
+                  <details className="answer-options">
+                    <summary>{t('ตัวเลือกคำตอบ', 'Answer options')}</summary>
+                    <div className="answer-controls">
+                      <div
+                        className="segmented"
+                        aria-label={t('ระดับการวิเคราะห์', 'Analysis depth')}
                       >
-                        <option value="auto">{t('ตรวจอัตโนมัติ', 'Auto-detect')}</option>
-                        <option value="technical">Technical</option>
-                        <option value="coding">Coding</option>
-                        <option value="system_design">System design</option>
-                        <option value="behavioral">Behavioral / STAR</option>
-                        <option value="case">Case / problem solving</option>
-                      </select>
-                    </label>
-                    <label className="switch-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.verifyAnswers}
-                        onChange={(e) =>
-                          updateSettings({ ...settings, verifyAnswers: e.target.checked })
-                        }
-                      />
-                      {t('ตรวจคำตอบซ้ำด้วย AI', 'AI consistency review')}
-                    </label>
-                    <p>
-                      {t(
-                        'เปิดการตรวจซ้ำช่วยหาข้อผิดพลาดและข้ออ้างที่ไม่มีหลักฐาน ใช้เวลาและ token เพิ่ม ไม่ใช่การยืนยันความถูกต้องทั้งหมด',
-                        'Review checks for errors and unsupported claims. It adds time and tokens and is not independent verification.',
-                      )}
-                    </p>
-                  </div>
+                        {(
+                          [
+                            { id: 'fast', label: t('เร็ว', 'Fast') },
+                            { id: 'balanced', label: t('สมดุล', 'Balanced') },
+                            { id: 'deep', label: t('ละเอียด', 'Deep') },
+                          ] as const
+                        ).map((option) => (
+                          <button
+                            key={option.id}
+                            aria-pressed={settings.speed === option.id}
+                            className={settings.speed === option.id ? 'selected' : ''}
+                            onClick={() => updateSettings({ ...settings, speed: option.id })}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="control-toggles">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={settings.useSearch}
+                            disabled={health?.capabilities?.search === false}
+                            onChange={(e) =>
+                              updateSettings({ ...settings, useSearch: e.target.checked })
+                            }
+                          />
+                          {t('ค้นเว็บ', 'Web search')}
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={settings.quickStudy}
+                            onChange={(e) =>
+                              updateSettings({ ...settings, quickStudy: e.target.checked })
+                            }
+                          />
+                          {t('สรุปสั้น', 'Quick study')}
+                        </label>
+                      </div>
+                    </div>
+                    <div className="quality-controls">
+                      <label>
+                        {t('ประเภทโจทย์', 'Question type')}
+                        <select
+                          value={settings.taskType}
+                          onChange={(e) =>
+                            updateSettings({
+                              ...settings,
+                              taskType: e.target.value as Settings['taskType'],
+                            })
+                          }
+                        >
+                          <option value="auto">{t('ตรวจอัตโนมัติ', 'Auto-detect')}</option>
+                          <option value="technical">Technical</option>
+                          <option value="coding">Coding</option>
+                          <option value="system_design">System design</option>
+                          <option value="behavioral">Behavioral / STAR</option>
+                          <option value="case">Case / problem solving</option>
+                        </select>
+                      </label>
+                      <label className="switch-label">
+                        <input
+                          type="checkbox"
+                          checked={settings.verifyAnswers}
+                          onChange={(e) =>
+                            updateSettings({ ...settings, verifyAnswers: e.target.checked })
+                          }
+                        />
+                        {t('ตรวจคำตอบซ้ำด้วย AI', 'AI consistency review')}
+                      </label>
+                      <p>
+                        {t(
+                          'เปิดการตรวจซ้ำช่วยหาข้อผิดพลาดและข้ออ้างที่ไม่มีหลักฐาน ใช้เวลาและ token เพิ่ม ไม่ใช่การยืนยันความถูกต้องทั้งหมด',
+                          'Review checks for errors and unsupported claims. It adds time and tokens and is not independent verification.',
+                        )}
+                      </p>
+                    </div>
+                  </details>
                   {interview.busy && (
                     <div className="working-bar" role="status">
                       <span>
@@ -996,18 +919,7 @@ export default function App() {
                     />
                   ) : (
                     <section className="answer-empty panel">
-                      <span className="empty-decoration one" />
-                      <span className="empty-decoration two" />
-                      <div className="orb">
-                        <Sparkles size={30} />
-                      </div>
-                      <span className="eyebrow">A CLEARER ANSWER STARTS HERE</span>
-                      <h2>
-                        {t(
-                          'ไม่ต้องมีคำตอบที่สมบูรณ์แบบ\nแค่เริ่มจากคำถามแรก',
-                          'You have the experience.\nLet’s find the words.',
-                        )}
-                      </h2>
+                      <h2>{t('คำตอบจะแสดงที่นี่', 'Your answer will appear here.')}</h2>
                       <p>
                         {t(
                           'รับแนวทางตอบที่กระชับ ตัวอย่างบทพูด และประเด็นที่ควรระวัง โดยอ้างอิงโปรไฟล์ของคุณ',
@@ -1037,111 +949,16 @@ export default function App() {
                       <ArrowRight size={15} />
                     </button>
                   )}
-                  <Copilot
-                    key={sessionInfo.id}
-                    context={context}
-                    question={interview.current?.question || ''}
-                    language={language}
-                    notify={notify}
-                  />
                 </div>
-                <aside className="insights-column">
-                  <section className="panel prep-card">
-                    <div className="eyebrow">
-                      <BriefcaseBusiness size={14} /> YOUR CONTEXT
-                    </div>
-                    <h3>{context.role || t('ปรับคำตอบให้ตรงกับคุณ', 'Make it personal.')}</h3>
-                    <p>
-                      {context.targetCompany ||
-                        t(
-                          'เริ่มด้วยข้อมูลตำแหน่ง บริษัท และประสบการณ์',
-                          'Add your role, company and experience.',
-                        )}
-                    </p>
-                    <div className="context-check">
-                      <span className={context.resume ? 'done' : ''}>
-                        <Check size={13} />
-                      </span>
-                      {t('ประสบการณ์จริง', 'Experience')}
-                      <strong>
-                        {context.resume ? t('มีแล้ว', 'Added') : t('ยังไม่มี', 'Not added')}
-                      </strong>
-                    </div>
-                    <div className="context-check">
-                      <span className={context.jd ? 'done' : ''}>
-                        <Check size={13} />
-                      </span>
-                      {t('รายละเอียดงาน', 'Job description')}
-                      <strong>
-                        {context.jd ? t('มีแล้ว', 'Added') : t('ยังไม่มี', 'Not added')}
-                      </strong>
-                    </div>
-                    <button className="button full-width" onClick={() => setTab('profile')}>
-                      {t('จัดการโปรไฟล์', 'Edit profile')}
-                      <ArrowRight size={14} />
-                    </button>
-                  </section>
-                  <section className="coaching-tip">
-                    <span className="eyebrow">
-                      <BookOpen size={14} /> SMALL REMINDER
-                    </span>
-                    <h3>{t('พูดจากสิ่งที่คุณเคยทำจริง', 'Specific beats impressive.')}</h3>
-                    <p>
-                      {t(
-                        'เล่าว่าคุณรับผิดชอบอะไร ตัดสินใจอย่างไร และเกิดผลลัพธ์อะไร ให้ตัวอย่างจริงทำหน้าที่แทนคำขยาย',
-                        'Explain what you owned, why you made a decision, and what changed. Let real examples do the work.',
-                      )}
-                    </p>
-                  </section>
-                  <section className="panel session-details">
-                    <h3>{t('เซสชันนี้', 'This session')}</h3>
-                    <div>
-                      <span>{t('จำนวน token', 'Tokens used')}</span>
-                      <strong>{tokens.toLocaleString()}</strong>
-                    </div>
-                    <div>
-                      <span>{t('บันทึกอัตโนมัติ', 'Autosave')}</span>
-                      <strong>
-                        {saveStatus === 'saved'
-                          ? t('บันทึกแล้ว', 'Saved')
-                          : saveStatus === 'restored'
-                            ? t('กู้คืนแล้ว', 'Restored')
-                            : settings.autosave
-                              ? t('กำลังบันทึก', 'Saving')
-                              : t('ปิด', 'Off')}
-                      </strong>
-                    </div>
-                    <label className="switch-label">
-                      <input
-                        type="checkbox"
-                        checked={settings.autoSpeak}
-                        disabled={settings.realtimeMode && audio.listening}
-                        onChange={(e) =>
-                          updateSettings({ ...settings, autoSpeak: e.target.checked })
-                        }
-                      />
-                      <span>{t('อ่านคำตอบอัตโนมัติ', 'Read answers aloud')}</span>
-                    </label>
-                    <p className="micro muted">
-                      {t(
-                        'ใช้หูฟังเพื่อไม่ให้เสียงอ่านย้อนเข้าไมค์',
-                        'Use headphones to avoid capturing the spoken answer.',
-                      )}
-                    </p>
-                  </section>
-                  <button className="practice-link" onClick={() => setTab('practice')}>
-                    <GraduationCap size={20} />
-                    <span>
-                      <strong>{t('ลองซ้อมหนึ่งรอบไหม?', 'Ready for a practice round?')}</strong>
-                      <small>
-                        {t('รับ feedback จากคำตอบของคุณ', 'Get feedback on your own answer')}
-                      </small>
-                    </span>
-                    <ArrowRight size={16} />
-                  </button>
-                </aside>
               </div>
               <footer className="workspace-footer">
+                <span className="save-indicator">
+                  {settings.autosave
+                    ? saveStatus === 'error'
+                      ? t('บันทึกไม่สำเร็จ · ส่งออกเพื่อสำรอง', 'Save failed · export a backup')
+                      : t('บันทึกในเครื่องอัตโนมัติ', 'Saved locally')
+                    : t('ปิดบันทึกอัตโนมัติ', 'Autosave off')}
+                </span>
                 <ShieldCheck size={13} />
                 <span>
                   {t(
@@ -1154,21 +971,6 @@ export default function App() {
                 </button>
               </footer>
             </div>
-            <div hidden={tab !== 'preparation'}>
-              <PreparationPanel
-                key={sessionInfo.id}
-                context={context}
-                language={language}
-                saved={preparation}
-                onSave={setPreparation}
-                canAI={canAI}
-                notify={notify}
-                onQuestion={(question) => {
-                  setInput(question.slice(0, 5000));
-                  setTab('workspace');
-                }}
-              />
-            </div>
             <div hidden={tab !== 'profile'}>
               <ProfilePanel
                 key={sessionInfo.id + ':' + context.role + ':' + context.targetCompany}
@@ -1177,20 +979,6 @@ export default function App() {
                 onSave={setContext}
                 documentsAvailable={health?.capabilities?.documents ?? true}
                 searchAvailable={health?.capabilities?.search ?? true}
-                notify={notify}
-              />
-            </div>
-            <div hidden={tab !== 'practice'}>
-              <PracticePanel
-                key={sessionInfo.id}
-                context={context}
-                language={language}
-                turns={practice}
-                settings={settings}
-                onSettings={updateSettings}
-                onTurns={setPractice}
-                draft={practiceDraft}
-                onDraft={setPracticeDraft}
                 notify={notify}
               />
             </div>
@@ -1346,11 +1134,11 @@ export default function App() {
                 </p>
               </li>
               <li>
-                <strong>{t('เริ่มจากคำถามหรือซ้อมสัมภาษณ์', 'Ask or practice')}</strong>
+                <strong>{t('เริ่มจากคำถาม', 'Ask a question')}</strong>
                 <p>
                   {t(
-                    'พิมพ์คำถาม เปิดรับเสียง หรือใช้โหมดซ้อมเพื่อรับ feedback',
-                    'Type a question, start audio capture or practice for feedback.',
+                    'พิมพ์คำถามหรือเปิดรับเสียง แล้วตรวจคำตอบกับข้อมูลจริงของคุณ',
+                    'Type a question or start audio, then check the answer against your actual experience.',
                   )}
                 </p>
               </li>

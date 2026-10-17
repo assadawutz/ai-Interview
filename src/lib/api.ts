@@ -3,7 +3,6 @@ import { sourceSchema, usageSchema, answerReviewSchema } from '../../shared/cont
 import { z } from 'zod';
 import { normalizeGeminiKey } from '../../shared/credentials';
 import { routingSchema, defaultRouting, type LLMRouting } from '../../shared/routing';
-let accessToken = '';
 const GEMINI_KEY_STORAGE = 'interview-pulse:gemini-key';
 export function getGeminiKey() {
   try {
@@ -101,42 +100,24 @@ export function clearLLMConnection() {
   localStorage.removeItem(LLM_STORAGE);
   localStorage.removeItem(LLM_VAULT);
 }
-function routingHeaders() {
-  const { route, key } = getLLMConnection();
-  return { 'X-LLM-Config': JSON.stringify(route), ...(key ? { 'X-LLM-API-Key': key } : {}) };
-}
 let requestTimeoutMs = appConfig.timeoutMs;
 export function setRequestTimeoutMs(value?: number) {
   if (value !== undefined && Number.isFinite(value) && value >= 5000 && value <= 300000)
     requestTimeoutMs = value;
 }
-export function setAccessToken(value: string) {
-  accessToken = value;
-}
-export function getAccessToken() {
-  return accessToken;
-}
-export const headers = () => ({
-  'Content-Type': 'application/json',
-  ...routingHeaders(),
-  ...(getGeminiKey() ? { 'X-Gemini-API-Key': getGeminiKey() } : {}),
-  ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-});
 export async function request<T>(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
-  extraHeaders?: Record<string, string>,
+  override?: { route: LLMRouting; key: string },
 ): Promise<T> {
-  if (appConfig.runtime === 'client') {
+  {
     const saved = getLLMConnection();
     const geminiKey = getGeminiKey();
     const { ClientRuntime, clientError } = await import('./client-runtime');
     const connection = {
-      route: extraHeaders?.['X-LLM-Config']
-        ? routingSchema.parse(JSON.parse(extraHeaders['X-LLM-Config']))
-        : saved.route,
-      key: extraHeaders?.['X-LLM-API-Key'] ?? saved.key,
+      route: override?.route ?? saved.route,
+      key: override?.key ?? saved.key,
       geminiKey,
     };
     try {
@@ -151,18 +132,8 @@ export async function request<T>(
       throw clientError(e);
     }
   }
-  const response = await fetch(`/api/${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { ...headers(), ...extraHeaders },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])
-      : AbortSignal.timeout(requestTimeoutMs),
-  });
-  const data = await response.json().catch(() => ({ error: 'Invalid response from server.' }));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
-  return data as T;
 }
+
 const eventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('meta'), model: z.string() }),
   z.object({ type: z.literal('text'), text: z.string() }),
@@ -186,73 +157,13 @@ const eventSchema = z.discriminatedUnion('type', [
   }),
 ]);
 export type StreamEvent = z.infer<typeof eventSchema>;
-/** Handles CRLF, split UTF-8 bytes, multi-line data and explicit completion. */
-export async function readEvents(
-  response: Response,
-  receive: (event: StreamEvent) => void,
-  signal?: AbortSignal,
-) {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Request failed (${response.status}).`);
-  }
-  if (!response.headers.get('Content-Type')?.includes('text/event-stream') || !response.body)
-    throw new Error('Expected an answer stream.');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '',
-    completed = false;
-  const parse = (block: string) => {
-    const data = block
-      .split('\n')
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trimStart())
-      .join('\n');
-    if (!data) return;
-    let json: unknown;
-    try {
-      json = JSON.parse(data);
-    } catch {
-      throw new Error('Invalid answer stream. Please retry.');
-    }
-    const result = eventSchema.safeParse(json);
-    if (!result.success) throw new Error('Invalid answer stream. Please retry.');
-    if (result.data.type === 'error') throw new Error(result.data.error);
-    if (result.data.type === 'done') completed = true;
-    receive(result.data);
-  };
-  try {
-    while (!completed) {
-      signal?.throwIfAborted();
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      // A CR may arrive separately from the following LF.
-      buffer = buffer.replace(/\r\n/g, '\n');
-      let boundary;
-      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        parse(block);
-        if (completed) break;
-      }
-      if (done) {
-        if (!completed && buffer.trim()) parse(buffer);
-        break;
-      }
-    }
-    if (!completed) throw new Error('Connection ended before the answer completed. Please retry.');
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-}
 export async function streamAnswer(
   body: unknown,
   signal: AbortSignal,
   receive: (event: StreamEvent) => void,
 ) {
   const timeout = AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)]);
-  if (appConfig.runtime === 'client') {
+  {
     const saved = getLLMConnection();
     const geminiKey = getGeminiKey();
     const { ClientRuntime, clientError } = await import('./client-runtime');
@@ -262,13 +173,6 @@ export async function streamAnswer(
       throw clientError(e);
     }
   }
-  const response = await fetch('/api/analyze-question-stream', {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(body),
-    signal: timeout,
-  });
-  return readEvents(response, receive, timeout);
 }
 export async function fileBase64(file: Blob) {
   return new Promise<string>((resolve, reject) => {

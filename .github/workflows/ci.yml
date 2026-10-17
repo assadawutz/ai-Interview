@@ -8,9 +8,6 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    env:
-      GEMINI_API_KEY: ''
-      APP_ACCESS_TOKEN: ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

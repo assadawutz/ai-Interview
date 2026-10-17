@@ -1,6 +1,5 @@
 {
   "name": "Interview Pulse",
-  "description": "Thai and English interview preparation with streamed coaching, mock interviews, company research, and local session recovery.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "A focused browser-only interview workspace with questions, grounded answers and local session recovery.",
+  "requestFramePermissions": ["microphone"]
 }

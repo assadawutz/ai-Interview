@@ -1,6 +1,4 @@
-api
-server
-server.ts
 tests
+artifacts
+test-results
 .env*
-!.env.example

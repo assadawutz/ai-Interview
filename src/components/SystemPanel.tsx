@@ -1,12 +1,9 @@
-import { appConfig } from '../config';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, KeyRound, Settings2, CheckCircle2, ExternalLink } from 'lucide-react';
 import type { Health } from '../../shared/contracts';
 import { diagnosticsSchema } from '../../shared/contracts';
 import {
   request,
-  getAccessToken,
-  setAccessToken,
   getGeminiKey,
   saveGeminiKey,
   clearGeminiKey,
@@ -30,7 +27,6 @@ export function SystemPanel({
   const [remember, setRemember] = useState(remembersGeminiKey);
   const [visible, setVisible] = useState(false);
   const [keyError, setKeyError] = useState('');
-  const [token, setToken] = useState(getAccessToken());
   const [diagnostics, setDiagnostics] = useState<ReturnType<typeof diagnosticsSchema.parse> | null>(
     null,
   );
@@ -45,7 +41,7 @@ export function SystemPanel({
           <span className="eyebrow">
             <Settings2 size={14} /> SYSTEM STATUS
           </span>
-          <h2>{t('พร้อมใช้งานอย่างมั่นใจ', 'Know what’s connected.')}</h2>
+          <h2>{t('ตั้งค่า AI', 'Connect your AI.')}</h2>
         </div>
         <button className="button" onClick={onRefresh}>
           <RefreshCw size={15} />
@@ -55,11 +51,7 @@ export function SystemPanel({
       <div className="system-checks">
         <div>
           <span className={`system-dot ${health ? 'good' : ''}`} />
-          <strong>
-            {appConfig.runtime === 'client'
-              ? t('รันไทม์เบราว์เซอร์', 'Browser runtime')
-              : t('เซิร์ฟเวอร์', 'Server')}
-          </strong>
+          <strong>{t('รันไทม์เบราว์เซอร์', 'Browser runtime')}</strong>
           <span>
             {health ? t('เชื่อมต่อแล้ว', 'Connected') : t('เชื่อมต่อไม่ได้', 'Unavailable')}
           </span>
@@ -232,34 +224,6 @@ export function SystemPanel({
             </button>
           </form>
         </Modal>
-      )}
-      {health?.requiresAccessToken && (
-        <form
-          className="token-form"
-          hidden={appConfig.runtime === 'client'}
-          onSubmit={(e) => {
-            e.preventDefault();
-            setAccessToken(token.trim());
-            notify(
-              t(
-                'บันทึก token ในหน่วยความจำแล้ว จะหายเมื่อรีเฟรช',
-                'Access token saved in memory. It clears on refresh.',
-              ),
-            );
-          }}
-        >
-          <label>
-            <KeyRound size={15} />
-            {t('App access token', 'App access token')}
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <button className="button primary">{t('ใช้ token นี้', 'Apply token')}</button>
-        </form>
       )}
       <LLMSettings
         language={language}

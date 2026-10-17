@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { test, expect } from '@playwright/test';
 const answer =
   '# [DIRECT_ANSWER]\nUse verified experience.\n# [HOW_IT_WORKS]\nCheck facts and assumptions.\n# [EXECUTIVE_SUMMARY]\nValidate the result.';
@@ -18,28 +19,16 @@ for (const width of [320, 390, 768, 1024, 1440])
     await page.goto('/');
     await expect(page.locator('.setup-banner')).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-runtime', 'client');
-    for (const name of [
-      'สถานะระบบ',
-      'โปรไฟล์ของฉัน',
-      'แผนเตรียมตัว',
-      'ซ้อมสัมภาษณ์',
-      'พื้นที่เตรียมตัว',
-    ]) {
+    for (const name of ['สถานะระบบ', 'โปรไฟล์ของฉัน', 'พื้นที่เตรียมตัว']) {
       await page.locator('.sidebar').getByRole('button', { name, exact: true }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
+      if (width === 1440)
+        expect(
+          (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations,
+        ).toEqual([]);
     }
-    await page.getByRole('button', { name: 'พักเอฟเฟกต์เคลื่อนไหว', exact: true }).click();
-    await expect(page.locator('html')).toHaveAttribute('data-motion', 'paused');
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    expect(
-      await page.evaluate(() =>
-        [...document.querySelectorAll('.tech-atmosphere *')].every(
-          (e) => getComputedStyle(e).animationName === 'none',
-        ),
-      ),
-    ).toBe(true);
     expect(backend).toEqual([]);
     expect(errors).toEqual([]);
   });

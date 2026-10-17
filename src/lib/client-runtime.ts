@@ -12,24 +12,13 @@ import { routingSchema, type LLMRouting } from '../../shared/routing';
 import { resolveCapabilities } from '../../shared/capabilities';
 import {
   answerReviewSchema,
-  preparationSchema,
   detectionSchema,
   sourceSchema,
   type Usage,
 } from '../../shared/contracts';
-import {
-  answerBody,
-  base,
-  binaryBody,
-  chatBody,
-  detectBody,
-  evaluation,
-  practiceBody,
-  searchBody,
-  text,
-} from '../../shared/requests';
-import { safety, coachPrompt, preparationPrompt, reviewPrompt } from '../../shared/prompts';
-import { checkEvidence, checkPreparation, replaceSection } from '../../shared/quality';
+import { answerBody, binaryBody, detectBody, searchBody, text } from '../../shared/requests';
+import { safety, coachPrompt, reviewPrompt } from '../../shared/prompts';
+import { checkEvidence, replaceSection } from '../../shared/quality';
 import { answerSections, sectionHeaders } from '../../shared/markdown';
 import type { Provider } from '../../shared/provider';
 import type { StreamEvent } from './api';
@@ -375,35 +364,6 @@ export class ClientRuntime {
           systemInstruction: `${safety} Detect substantive questions, ignore incomplete fragments, compare recent questions for duplicates. Return original-language cleanQuestion and confidence 0-100.`,
         },
       };
-    } else if (path === 'preparation-plan') {
-      const data = z.object(base).parse(body);
-      schema = preparationSchema;
-      params = {
-        contents: JSON.stringify(data),
-        config: { systemInstruction: `${preparationPrompt} Respond in ${data.language}.` },
-      };
-    } else if (path === 'practice') {
-      const data = practiceBody.parse(body);
-      if (data.question && !data.answer.trim())
-        throw new RuntimeError('Provide your answer before requesting feedback.');
-      schema = data.question ? evaluation : z.object({ nextQuestion: text() });
-      params = {
-        contents: JSON.stringify(data),
-        config: {
-          systemInstruction: `${safety} Conduct a mock interview in ${data.language}, task ${data.taskType}, difficulty ${data.difficulty}. ${data.question ? 'Evaluate the submitted answer for correctness. Give actionable feedback, integer scores 0-5 for relevance, structure, evidence, clarity; strengths, improvements, suggestedAnswer using only supplied facts or placeholders; and one contextual nextQuestion. Scores are coaching feedback, never hiring probability.' : 'Ask one relevant opening nextQuestion. Avoid repeats from history.'}`,
-        },
-      };
-    } else if (path === 'copilot-chat') {
-      const data = chatBody.parse(body);
-      params = {
-        contents: data.messages.map((m) => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.text }],
-        })),
-        config: {
-          systemInstruction: `${safety} Answer follow-ups concisely in ${data.language}. Context: ${JSON.stringify(data.context)}. Active question: ${JSON.stringify(data.activeQuestion)}`,
-        },
-      };
     } else if (path === 'search-company-intel') {
       const data = searchBody.parse(body);
       nativeOnly = true;
@@ -441,7 +401,7 @@ export class ClientRuntime {
         responseMimeType: 'application/json',
         responseJsonSchema: z.toJSONSchema(schema),
       };
-    const { response, model } = await this.generate(
+    const { response } = await this.generate(
       params,
       role,
       signal,
@@ -450,17 +410,8 @@ export class ClientRuntime {
         ? this.connection.route.geminiModel || appConfig.models.transcription
         : undefined,
     );
-    if (path === 'preparation-plan')
-      return {
-        plan: checkPreparation(
-          structured(preparationSchema, response),
-          z.object(base).parse(body).context,
-        ),
-        modelUsed: model,
-      };
     if (path === 'search-company-intel')
       return { text: response.text || '', sources: sources(response) };
-    if (path === 'copilot-chat') return { reply: response.text || '' };
     if (path === 'transcribe') return { transcript: response.text?.trim() || '' };
     if (path === 'analyze-doc')
       return { analysis: structured(z.object({ summary: text(30000) }), response).summary };

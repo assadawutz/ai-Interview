@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAgentPlan, freeTextModels, parseCatalog, type CatalogModel } from '../server/agents';
+import {
+  buildAgentPlan,
+  freeTextModels,
+  parseCatalog,
+  type CatalogModel,
+} from '../shared/free-models';
 import { agentDefaults } from '../shared/agents';
 const catalog = Object.values(agentDefaults).map((id) => ({
   id,

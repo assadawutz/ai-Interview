@@ -236,8 +236,8 @@ export function LLMSettings({
                       {},
                       controller.signal,
                       {
-                        'X-LLM-Config': JSON.stringify(route),
-                        'X-LLM-API-Key': route.provider === 'ollama' ? '' : normalizeGeminiKey(key),
+                        route,
+                        key: route.provider === 'ollama' ? '' : normalizeGeminiKey(key),
                       },
                     );
                     if (lookup.current === controller && !controller.signal.aborted) {

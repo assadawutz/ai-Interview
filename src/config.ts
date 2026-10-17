@@ -1,6 +1,6 @@
 import { z } from 'zod';
 const spec = z.object({
-  runtime: z.enum(['client', 'server']),
+  runtime: z.literal('client'),
   timeoutMs: z.number().min(5000).max(300000),
   reviewTimeoutMs: z.number().positive(),
   maxOutputTokens: z.number().int().positive(),
@@ -13,24 +13,18 @@ const spec = z.object({
     transcription: z.string(),
   }),
   design: z.object({
-    yellow: z.string(),
     lime: z.string(),
     purple: z.string(),
     ink: z.string(),
     surface: z.string(),
     border: z.string(),
     radius: z.string(),
-    duration: z.string(),
-    easing: z.string(),
-    drift: z.string(),
-    connection: z.string(),
-    float: z.string(),
   }),
 });
 /** Reviewed release defaults. No credential may be added to this public config. */
 export const appConfig = Object.freeze(
   spec.parse({
-    runtime: import.meta.env?.VITE_RUNTIME_MODE === 'server' ? 'server' : 'client',
+    runtime: 'client',
     timeoutMs: 75000,
     reviewTimeoutMs: 20000,
     maxOutputTokens: 4096,
@@ -43,18 +37,12 @@ export const appConfig = Object.freeze(
       transcription: 'gemini-3.5-transcribe',
     },
     design: {
-      yellow: '#ffe45c',
-      lime: '#caff45',
-      purple: '#7042cc',
-      ink: '#171323',
-      surface: '#fbf9ff',
-      border: '2px',
+      lime: '#d9ef9c',
+      purple: '#6544b9',
+      ink: '#20222b',
+      surface: '#f7f8fa',
+      border: '1px',
       radius: '12px',
-      duration: '180ms',
-      easing: 'cubic-bezier(.2,.8,.2,1)',
-      drift: '20s',
-      connection: '18s',
-      float: '8s',
     },
   }),
 );
